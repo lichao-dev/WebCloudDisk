@@ -1,0 +1,56 @@
+; WebCloudDisk 服务端配置文件示例
+; 使用前请复制此文件为 server.ini，并修改所有 change_me 配置项
+
+[server]
+port=9527
+; Web 静态资源根目录
+; 用于存放前端页面、CSS、JavaScript 等静态文件
+web_root=./www
+
+[database]
+; MySQL 数据库服务器地址
+host=127.0.0.1
+port=3306
+username=change_me
+password=change_me
+; 使用的数据库名称
+database=CloudDisk
+; 数据库连接失败时最大重试次数
+; 服务启动时连接数据库失败会按照该次数重试
+retry_max=3
+
+[auth]
+; JWT 签名密钥
+; 用于生成和验证用户登录 Token
+; 生产环境必须修改为随机生成的高强度密钥
+; 建议长度至少 32 字符
+jwt_secret=change_me_to_a_random_secret_at_least_32_characters
+; JWT 签发者
+; 用于标识生成该 Token 的服务
+jwt_issuer=web-cloud-disk
+; Token 有效时间，单位：秒
+; 3600 表示 Token 有效期为 1 小时
+token_ttl_seconds=3600
+; PBKDF2-HMAC-SHA256 密码哈希迭代次数
+; 次数越高，密码破解成本越高，但登录计算耗时也会增加
+password_iterations=600000
+
+[storage]
+; 上传文件存储根目录
+; 用户上传的文件默认保存到该目录
+root=./upload
+; 单个文件最大上传大小，单位：字节
+; 104857600 = 100MB
+max_file_size_bytes=104857600
+
+[log]
+; 日志级别
+; 可选值通常包括 trace/debug/info/warn/error
+level=info
+; 是否同时输出到控制台
+console=true
+file=./log/cloud_disk_server.log
+; 单个日志文件的最大字节数，达到后自动轮转
+roll_size=100000000
+; 最多保留的轮转日志文件数量
+roll_files=5

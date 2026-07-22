@@ -1,0 +1,145 @@
+#include "config/Config.h"
+#include "log/Log.h"
+#include "security/JwtService.h"
+#include "security/PasswordHasher.h"
+#include "security/Sha256.h"
+#include "storage/LocalFileStorage.h"
+
+#include <cassert>
+#include <chrono>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <iterator>
+#include <string>
+
+namespace {
+
+using namespace std::string_view_literals;
+using webdisk::config::Config;
+using webdisk::log::Log;
+using webdisk::security::JwtService;
+using webdisk::security::PasswordHasher;
+using webdisk::security::Sha256;
+using webdisk::storage::LocalFileStorage;
+
+std::filesystem::path make_test_root() {
+    const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+    const auto root = std::filesystem::temp_directory_path() /
+                      ("web-cloud-disk-tests-" + std::to_string(stamp));
+    std::filesystem::create_directories(root);
+    return root;
+}
+
+void test_config(const std::filesystem::path& root) {
+    const auto config_dir = root / "config";
+    std::filesystem::create_directories(config_dir);
+    const auto path = config_dir / "server.ini";
+    std::ofstream output(path);
+    output << "[server]\nport=9527\nweb_root=./test-www\n"
+              "[database]\nhost=127.0.0.1\nport=3306\nusername=test\npassword=test\n"
+              "database=CloudDisk\nretry_max=3\n"
+              "[auth]\njwt_secret=01234567890123456789012345678901\n"
+              "jwt_issuer=test\ntoken_ttl_seconds=3600\npassword_iterations=600000\n"
+              "[storage]\nroot=./test-upload\nmax_file_size_bytes=1024\n"
+              "[log]\nlevel=info\nconsole=false\nfile=./test-log/server.log\n"
+              "roll_size=2048\nroll_files=3\n";
+    output.close();
+
+    auto config = Config::load(path);
+    assert(config);
+    assert(config.value().server.port == 9527);
+    const auto working_dir = std::filesystem::current_path();
+    assert(config.value().server.web_root == (working_dir / "test-www").lexically_normal());
+    assert(config.value().storage.root == (working_dir / "test-upload").lexically_normal());
+    assert(!config.value().log.console);
+    assert(config.value().log.file == (working_dir / "test-log" / "server.log").lexically_normal());
+    assert(config.value().log.roll_size == 2048);
+    assert(config.value().log.roll_files == 3);
+}
+
+void test_password_hashing() {
+    PasswordHasher hasher(600000);
+    auto encoded = hasher.hash("correct horse battery staple");
+    assert(encoded);
+    assert(encoded.value().find("pbkdf2-sha256$600000$") == 0);
+
+    auto valid = hasher.verify("correct horse battery staple", encoded.value());
+    auto invalid = hasher.verify("wrong", encoded.value());
+    assert(valid.ok() && valid.value());
+    assert(invalid.ok() && !invalid.value());
+}
+
+void test_jwt() {
+    JwtService jwt("01234567890123456789012345678901", "test", std::chrono::seconds(60));
+    auto token = jwt.generate(42);
+    assert(token);
+    auto context = jwt.verify(token.value());
+    assert(context);
+    assert(context.value().user_id == 42);
+    assert(!jwt.verify(token.value() + "broken"));
+}
+
+void test_storage(const std::filesystem::path& root) {
+    LocalFileStorage storage(root / "upload");
+    assert(storage.initialize());
+    auto hashcode = Sha256::hex("binary\0content"sv);
+    assert(hashcode);
+    auto first = storage.store_if_absent(hashcode.value(), "binary\0content"sv);
+    auto second = storage.store_if_absent(hashcode.value(), "binary\0content"sv);
+    assert(first.ok() && first.value());
+    assert(second.ok() && !second.value());
+    assert(storage.exists(hashcode.value()));
+}
+
+void test_logging(const std::filesystem::path& root) {
+    Config::Log invalid_config;
+    invalid_config.level = "invalid";
+    assert(!Log::init(invalid_config));
+
+    Config::Log log_config;
+    log_config.level = "debug";
+    log_config.console = false;
+    log_config.file = root / "log" / "test.log";
+    log_config.roll_size = 1024 * 1024;
+    log_config.roll_files = 2;
+    assert(Log::init(log_config));
+
+    LOG_DEBUG("debug log test: {}", 42);
+    LOG_ERROR("error log test");
+
+    Config app_config;
+    app_config.log = log_config;
+    app_config.database.username = "private-db-user";
+    app_config.database.password = "private-db-password";
+    app_config.auth.jwt_secret = "private-jwt-secret";
+    const std::string config_text = app_config.to_string();
+    LOG_INFO("Configuration: {}", config_text);
+    Log::shutdown();
+
+    std::ifstream input(log_config.file);
+    const std::string content((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+    assert(content.find("debug log test: 42") != std::string::npos);
+    assert(content.find("error log test") != std::string::npos);
+    assert(content.find("Configuration: server{") != std::string::npos);
+    assert(content.find("username_configured=true") != std::string::npos);
+    assert(content.find("password_configured=true") != std::string::npos);
+    assert(content.find("jwt_secret_configured=true") != std::string::npos);
+    assert(content.find("private-db-user") == std::string::npos);
+    assert(content.find("private-db-password") == std::string::npos);
+    assert(content.find("private-jwt-secret") == std::string::npos);
+}
+
+} // namespace
+
+int main() {
+    const auto root = make_test_root();
+    test_config(root);
+    test_password_hashing();
+    test_jwt();
+    test_storage(root);
+    test_logging(root);
+    std::filesystem::remove_all(root);
+    std::cout << "all core tests passed\n";
+    return 0;
+}

@@ -1,1 +1,29 @@
 .DS_Store
+/bin/
+/build/
+/conf/server.ini
+/log/
+/upload/
+
+# Compiled libraries
+*.a
+*.so
+*.so.*
+*.dll
+*.dylib
+
+# Third-party build directories
+/third_party/*/build*/
+
+# Object files and logs
+*.o
+*.obj
+*.log
+
+# Editor / tooling
+*.swp
+*.swo
+*~
+/.cache/
+/compile_commands.json
+/cmake-build-*/
