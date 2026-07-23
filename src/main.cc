@@ -11,7 +11,7 @@
 
 namespace {
 
-WFFacilities::WaitGroup wait_group(1);
+WFFacilities::WaitGroup wait_group{1};
 
 void signal_handler(int) {
     wait_group.done();
@@ -49,7 +49,7 @@ int main(int argc, char* argv[]) {
     LOG_INFO("Configuration: {}", config.value().to_string());
 
     const uint16_t listen_port = config.value().server.port;
-    webdisk::app::Application application(config.take_value());
+    webdisk::app::Application application{config.take_value()};
     auto initialized = application.init();
     if (!initialized) {
         LOG_ERROR("Application initialization failed: status={}", initialized.error().status_code);

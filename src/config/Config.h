@@ -11,6 +11,7 @@
 namespace webdisk {
 namespace config {
 
+// 配置类
 class Config {
 public:
     struct Server {
