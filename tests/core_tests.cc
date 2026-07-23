@@ -82,7 +82,7 @@ void test_jwt() {
 
 void test_storage(const std::filesystem::path& root) {
     LocalFileStorage storage(root / "upload");
-    assert(storage.initialize());
+    assert(storage.init());
     auto hashcode = Sha256::hex("binary\0content"sv);
     assert(hashcode);
     auto first = storage.store_if_absent(hashcode.value(), "binary\0content"sv);

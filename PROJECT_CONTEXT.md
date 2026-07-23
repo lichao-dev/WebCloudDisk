@@ -1,7 +1,7 @@
 # WebCloudDisk 项目上下文
 
 > 更新时间：2026-07-23  
-> 当前项目路径：`/home/lichao/projects/WebCloudDisk`  
+> 当前项目路径：`/Users/lichao/projects/WebCloudDisk`
 > 目标：让新的 Codex 对话先阅读本文件，再基于当前 checkout 继续第一期开发。
 
 ## 1. 当前阶段与范围
@@ -23,11 +23,14 @@ WebCloudDisk 是一个 C++17 Web 网盘项目。当前正在实现第一期单�
 ## 2. 当前 Git 与工作区状态
 
 - 当前分支：`main`。
-- 当前提交：`283034a Implement phase-one WebCloudDisk service`。
-- 当前存在用户未提交修改，必须保留：
-  - `src/config/Config.h`：给 `Config` 增加了类说明注释。
-  - `src/main.cc`：把 `WaitGroup` 和 `Application` 改成花括号直接初始化。
-- 不要覆盖、还原或重置用户修改。
+- 当前基线提交：`acf4872 Improve project documentation`，与 `origin/main` 同步。
+- `Config.h` 的类说明注释和 `main.cc` 的花括号直接初始化已在 `acf4872` 中提交，不再是未提交修改。
+- 当前存在本轮待提交修改，必须保留：
+  - `src/service/AuthService.cc`：补全 `model::User` 和 `common::Result` 的命名空间限定。
+  - `tests/core_tests.cc`：将旧的 `storage.initialize()` 调用更新为 `storage.init()`。
+  - `docs/第三方库编译与迁移指南.md`：更新 nlohmann/json 目录和配置实现文件的旧名称。
+  - `PROJECT_CONTEXT.md`：同步当前 Git、构建和待办状态。
+- 不要覆盖、还原或重置上述修改。
 - `conf/server.ini`、`log/`、`upload/`、`build/` 和 `compile_commands.json` 已在 `.gitignore` 中忽略。
 - `conf/server.ini` 含数据库密码和 JWT 密钥，不要打印、提交或写入文档。
 
@@ -352,28 +355,25 @@ ctest --test-dir build --output-on-failure
 
 ## 14. 当前已验证状态与待处理事项
 
-2026-07-23 使用当前源码在新的 `/tmp` 构建目录实际执行 CMake。配置成功，但构建失败，首先需要处理：
+2026-07-23 在 macOS/AppleClang 环境中重新构建缺失的 spdlog、Workflow 和 wfrest 本地产物后，使用新的 `/tmp/webclouddisk-build.l2vCZz` 构建目录完成了：
 
-1. `src/service/AuthService.cc` 缺少 `model::User` 限定：
-   - 第 63 行使用了 `std::optional<User>`。
-   - 第 85 行 `finish_login(const User& ...)`。
-   - 当前文件没有 `using model::User;`。
-   - 可添加 `using model::User;`，或把两处改为 `model::User`，然后重新构建。
-2. 修复上项后，`tests/core_tests.cc` 预计还会失败：测试调用 `storage.initialize()`，当前类接口是 `storage.init()`。应把测试改成 `init()`。
-3. 用户最新未完成请求：为所有项目类顶部添加一句简短职责注释。之前因 Codex 工作区写权限仍绑定已删除的旧路径 `/home/lichao/lirui/WebCloudDisk`，补丁没有写入。新会话应在当前路径重新执行。
-4. `docs/第三方库编译与迁移指南.md` 仍有旧名称：多处写 `third_party/json` 和 `src/config/AppConfig.cc`；当前实际是 `third_party/nlohmann_json` 和 `src/config/Config.cc`，后续应同步文档。
-5. 若继续清理 Lambda，可删除只调用 `std::function`、没有修改/移动捕获值的多余 `mutable`；需要 `std::move` 捕获成员的 Lambda 必须保留。
+- CMake 配置成功。
+- `cmake --build ... --parallel` 全量编译成功，包括 `cloud_disk_server` 和 `cloud_disk_core_tests`。
+- `ctest --output-on-failure` 通过，共 `1/1` 个测试。
+- `AuthService.cc` 的类型限定错误和 `core_tests.cc` 的旧接口名均已修复。
+- 第三方迁移指南中的 `third_party/json`、`json/include` 和 `src/config/AppConfig.cc` 旧名称已全部更新。
 
-当前没有完成一次全量构建或测试通过验证。下一次修改后必须执行标准构建和 `ctest`，不要只做静态判断。
+当前待处理事项：
+
+1. 为所有项目类顶部添加一句简短职责注释，不修改第三方库。
+2. 若继续清理 Lambda，可删除只调用 `std::function`、没有修改/移动捕获值的多余 `mutable`；需要 `std::move` 捕获成员的 Lambda 必须保留。
+
+macOS 默认大小写不敏感文件系统上，Workflow 源码中的 `BUILD` 文件会与 `build` 目录冲突；本次使用 `third_party/workflow/build-macos` 作为构建目录。
 
 ## 15. 建议下次 Codex 的开始顺序
 
 1. 先阅读本文件、`README.md`、第一期需求和当前 `git diff`。
-2. 保留 `Config.h`、`main.cc` 的用户修改。
-3. 先修复 `AuthService.cc` 的 `User` 命名空间编译错误。
-4. 修复测试中的 `initialize()` → `init()`。
-5. 完成所有项目类顶部的一句职责注释。
-6. 审核并移除真正多余的 `mutable`，不要机械删除需要移动捕获值的情况。
-7. 在新 build 目录重新配置、完整编译并运行 `ctest`。
-8. 最后同步第三方迁移文档里的旧目录/类名。
-
+2. 保留第 2 节列出的待提交修改。
+3. 完成所有项目类顶部的一句职责注释。
+4. 审核并移除真正多余的 `mutable`，不要机械删除需要移动捕获值的情况。
+5. 后续修改仍应在新 build 目录重新配置、完整编译并运行 `ctest`。

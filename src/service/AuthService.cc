@@ -60,7 +60,7 @@ void AuthService::login(const std::string& username, const std::string& password
     }
 
     WFMySQLTask* task = users_.find_by_username(username, [this, password, response, callback = std::move(callback)](
-                                                              common::Result<std::optional<User>> result) mutable {
+                                                              common::Result<std::optional<model::User>> result) mutable {
         if (!result) {
             callback(common::Result<LoginResult>::failure(result.error().status_code, result.error().message));
             return;
@@ -82,49 +82,50 @@ void AuthService::login(const std::string& username, const std::string& password
     response->add_task(task);
 }
 
-void AuthService::finish_login(const User& user, const std::string& password, wfrest::HttpResp* response,
+void AuthService::finish_login(const model::User& user, const std::string& password, wfrest::HttpResp* response,
                                LoginCallback callback) const {
     auto verified = password_hasher_.verify(password, user.password_hash);
     if (!verified.ok()) {
-        callback(Result<LoginResult>::failure(verified.error().status_code, verified.error().message));
+        callback(common::Result<LoginResult>::failure(verified.error().status_code, verified.error().message));
         return;
     }
     if (!verified.value()) {
         LOG_WARN("Login rejected: invalid credentials for user_id={}", user.id);
-        callback(Result<LoginResult>::failure(401, "Invalid username or password"));
+        callback(common::Result<LoginResult>::failure(401, "Invalid username or password"));
         return;
     }
 
     auto token = jwt_service_.generate(user.id);
     if (!token) {
-        callback(Result<LoginResult>::failure(token.error().status_code, token.error().message));
+        callback(common::Result<LoginResult>::failure(token.error().status_code, token.error().message));
         return;
     }
 
     LoginResult login_result{token.value(), user};
     if (!password_hasher_.needs_rehash(user.password_hash)) {
         LOG_INFO("User logged in: user_id={}", user.id);
-        callback(Result<LoginResult>::success(std::move(login_result)));
+        callback(common::Result<LoginResult>::success(std::move(login_result)));
         return;
     }
 
     // 登录成功后顺便升级旧的迭代参数，调整密码策略时无需强制用户重置密码。
     auto upgraded_hash = password_hasher_.hash(password);
     if (!upgraded_hash) {
-        callback(Result<LoginResult>::failure(upgraded_hash.error().status_code, upgraded_hash.error().message));
+        callback(common::Result<LoginResult>::failure(upgraded_hash.error().status_code,
+                                                      upgraded_hash.error().message));
         return;
     }
 
     WFMySQLTask* update_task = users_.update_password_hash(
         user.id, upgraded_hash.value(),
         [user_id = user.id, login_result = std::move(login_result),
-         callback = std::move(callback)](Result<void> result) mutable {
+         callback = std::move(callback)](common::Result<void> result) mutable {
             if (!result) {
-                callback(Result<LoginResult>::failure(result.error().status_code, result.error().message));
+                callback(common::Result<LoginResult>::failure(result.error().status_code, result.error().message));
                 return;
             }
             LOG_INFO("User logged in and password hash upgraded: user_id={}", user_id);
-            callback(Result<LoginResult>::success(std::move(login_result)));
+            callback(common::Result<LoginResult>::success(std::move(login_result)));
         });
     response->add_task(update_task);
 }
