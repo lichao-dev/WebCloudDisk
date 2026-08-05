@@ -15,14 +15,6 @@
 
 namespace {
 
-using namespace std::string_view_literals;
-using webdisk::config::Config;
-using webdisk::log::Log;
-using webdisk::security::JwtService;
-using webdisk::security::PasswordHasher;
-using webdisk::security::Sha256;
-using webdisk::storage::LocalFileStorage;
-
 std::filesystem::path make_test_root() {
     const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
     const auto root = std::filesystem::temp_directory_path() /
@@ -46,7 +38,7 @@ void test_config(const std::filesystem::path& root) {
               "roll_size=2048\nroll_files=3\n";
     output.close();
 
-    auto config = Config::load(path);
+    auto config = webdisk::config::Config::load(path);
     assert(config);
     assert(config.value().server.port == 9527);
     const auto working_dir = std::filesystem::current_path();
@@ -59,7 +51,7 @@ void test_config(const std::filesystem::path& root) {
 }
 
 void test_password_hashing() {
-    PasswordHasher hasher(600000);
+    webdisk::security::PasswordHasher hasher(600000);
     auto encoded = hasher.hash("correct horse battery staple");
     assert(encoded);
     assert(encoded.value().find("pbkdf2-sha256$600000$") == 0);
@@ -71,7 +63,7 @@ void test_password_hashing() {
 }
 
 void test_jwt() {
-    JwtService jwt("01234567890123456789012345678901", "test", std::chrono::seconds(60));
+    webdisk::security::JwtService jwt("01234567890123456789012345678901", "test", std::chrono::seconds(60));
     auto token = jwt.generate(42);
     assert(token);
     auto context = jwt.verify(token.value());
@@ -81,41 +73,42 @@ void test_jwt() {
 }
 
 void test_storage(const std::filesystem::path& root) {
-    LocalFileStorage storage(root / "upload");
+    webdisk::storage::LocalFileStorage storage(root / "upload");
     assert(storage.init());
-    auto hashcode = Sha256::hex("binary\0content"sv);
+    constexpr std::string_view content{"binary\0content", 14};
+    auto hashcode = webdisk::security::Sha256::hex(content);
     assert(hashcode);
-    auto first = storage.store_if_absent(hashcode.value(), "binary\0content"sv);
-    auto second = storage.store_if_absent(hashcode.value(), "binary\0content"sv);
+    auto first = storage.store_if_absent(hashcode.value(), content);
+    auto second = storage.store_if_absent(hashcode.value(), content);
     assert(first.ok() && first.value());
     assert(second.ok() && !second.value());
     assert(storage.exists(hashcode.value()));
 }
 
 void test_logging(const std::filesystem::path& root) {
-    Config::Log invalid_config;
+    webdisk::config::Config::Log invalid_config;
     invalid_config.level = "invalid";
-    assert(!Log::init(invalid_config));
+    assert(!webdisk::log::Log::init(invalid_config));
 
-    Config::Log log_config;
+    webdisk::config::Config::Log log_config;
     log_config.level = "debug";
     log_config.console = false;
     log_config.file = root / "log" / "test.log";
     log_config.roll_size = 1024 * 1024;
     log_config.roll_files = 2;
-    assert(Log::init(log_config));
+    assert(webdisk::log::Log::init(log_config));
 
     LOG_DEBUG("debug log test: {}", 42);
     LOG_ERROR("error log test");
 
-    Config app_config;
+    webdisk::config::Config app_config;
     app_config.log = log_config;
     app_config.database.username = "private-db-user";
     app_config.database.password = "private-db-password";
     app_config.auth.jwt_secret = "private-jwt-secret";
     const std::string config_text = app_config.to_string();
     LOG_INFO("Configuration: {}", config_text);
-    Log::shutdown();
+    webdisk::log::Log::shutdown();
 
     std::ifstream input(log_config.file);
     const std::string content((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());

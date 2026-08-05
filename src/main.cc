@@ -57,6 +57,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    // 注册信号，优雅退出
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
 

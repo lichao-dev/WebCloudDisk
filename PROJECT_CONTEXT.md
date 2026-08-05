@@ -1,8 +1,8 @@
 # WebCloudDisk 项目上下文
 
-> 更新时间：2026-07-23  
-> 当前项目路径：`/Users/lichao/projects/WebCloudDisk`
-> 目标：让新的 Codex 对话先阅读本文件，再基于当前 checkout 继续第一期开发。
+> 更新时间：2026-08-05
+> 当前项目路径：`/Users/lichao/workspace/projects/WebCloudDisk`
+> 目标：让新的 Codex 对话先阅读本文件，再基于当前 checkout 和未提交修改继续工作。
 
 ## 1. 当前阶段与范围
 
@@ -16,21 +16,26 @@ WebCloudDisk 是一个 C++17 Web 网盘项目。当前正在实现第一期单�
 - INI 配置加载与校验。
 - 统一 JSON API 响应、错误传播和日志。
 
-第一期明确不包含 Docker、RabbitMQ、OSS、微服务和删除文件接口。除非用户主动扩大范围，否则不要提前实现这些内容。
+当前代码仍处于第一期：尚未实现 Docker/Compose 部署、RabbitMQ、OSS、微服务、文件删除和分享。除非用户主动扩大范围，否则不要把文档里的后续规划当成已实现功能。
 
-需求主文档：`docs/Web网盘项目-Markdown/Web网盘项目.md`。第一期对应第 1 章；后面的 Docker 部分当前不处理。
+需求主文档：`docs/Web网盘项目-Markdown/Web网盘项目.md`：
+
+- 第 1 章对应当前第一期本地存储实现。
+- 第 2 章 Docker 当前是学习和后续容器化准备，仓库里还没有项目 Dockerfile、Compose 或镜像构建流程。
+- 第 3 章 OSS 是第二期学习/规划内容，尚未接入当前代码。
 
 ## 2. 当前 Git 与工作区状态
 
 - 当前分支：`main`。
-- 当前基线提交：`acf4872 Improve project documentation`，与 `origin/main` 同步。
-- `Config.h` 的类说明注释和 `main.cc` 的花括号直接初始化已在 `acf4872` 中提交，不再是未提交修改。
-- 当前存在本轮待提交修改，必须保留：
-  - `src/service/AuthService.cc`：补全 `model::User` 和 `common::Result` 的命名空间限定。
-  - `tests/core_tests.cc`：将旧的 `storage.initialize()` 调用更新为 `storage.init()`。
-  - `docs/第三方库编译与迁移指南.md`：更新 nlohmann/json 目录和配置实现文件的旧名称。
-  - `PROJECT_CONTEXT.md`：同步当前 Git、构建和待办状态。
-- 不要覆盖、还原或重置上述修改。
+- 当前基线提交：`b9c1bdf Fix phase-one build errors and update documentation`，与 `origin/main` 同步。
+- 截至 2026-08-05，工作区有大量尚未提交的用户修改：本文件更新前共有 30 个已跟踪文件被修改；更新本文件后它也属于未提交修改；另有未跟踪的 `docs/如何看懂程序.md`。
+- 现有改动主要包括：
+  - 构造函数成员初始化统一使用花括号、删除项目代码中的局部命名空间导入、补全显式类型限定等风格整理。
+  - 全量检查 Lambda `mutable`，删除确定多余的 9 处，仅保留 `AuthService.cc` 中需要再次移动捕获值的 3 处。
+  - 在 Application、Repository、认证/密码哈希、文件服务和存储等代码旁补充简洁中文意图或安全注释。
+  - 调整部分文件处理、JSON 构造、命名和测试代码；具体行为以当前 `git diff` 为准。
+  - `README.md` 统一数据库名；需求文档扩充 Docker 和第二期 OSS 内容。
+- 上述修改尚未提交，全部视为用户当前工作成果；不要覆盖、还原、重置或顺手重写。开始新任务前必须重新查看 `git status`、最近提交和相关文件的精确 diff。
 - `conf/server.ini`、`log/`、`upload/`、`build/` 和 `compile_commands.json` 已在 `.gitignore` 中忽略。
 - `conf/server.ini` 含数据库密码和 JWT 密钥，不要打印、提交或写入文档。
 
@@ -143,6 +148,13 @@ wfrest::HttpServer
 
 此外还提供 `/` 和 `/static` 静态资源。
 
+前端上传格式已经确认：
+
+- `www/index.html` 的文件输入框带 `multiple`，用户可以一次选择多个文件。
+- `www/static/api.js` 为每个文件创建 `FormData`，以字段名 `file` 发送一个 `multipart/form-data` HTTP 请求；浏览器负责生成 boundary。
+- 当前前端用 `for...of` 配合 `await` 逐个上传，因此下一请求会等上一请求收到响应后再发出。后端对一般并发请求仍不保证“先收到就先入库”。
+- wfrest 解析后将表单字段表示为键值映射；文件字段的值包含原始文件名和文件内容。
+
 `AuthHandler` 使用 nlohmann/json 的无异常解析：
 
 ```cpp
@@ -173,6 +185,12 @@ nlohmann::json::parse(request->body(), nullptr, false)
 
 这是第一期的简化设计。以后若分层要求提高，再考虑业务错误枚举并在 HTTP 层映射，不要现在过度设计。
 
+几个常用组合类型的含义：
+
+- `Result<std::optional<User>>`：先区分数据库查询是否成功，再区分成功查询后是否找到用户。登录时“用户名不存在”和“密码错误”都返回 401，避免泄露用户名是否存在。
+- `Result<std::optional<FileInfo>>`：区分数据库失败、未找到当前用户可下载的文件、找到文件；未找到或文件不属于当前用户都映射为 404。
+- `Result<bool>`（文件存储）：错误表示存储失败；成功值 `true` 表示新写入，`false` 表示内容已存在并完成去重，并不是操作失败。
+
 ## 7. 异步任务与线程模型
 
 项目没有调用 `WORKFLOW_library_init()`，因此使用 Workflow 默认线程设置：
@@ -190,6 +208,7 @@ Workflow 根据 `fd % poller_threads` 把 socket 注册到某个 Poller。监听
 - 注册和上传通过 `server_.POST(path, 0, handler)` 进入 Compute 队列，因为密码哈希、文件哈希和同步写盘较重。
 - 其他路由先在 Handler 线程执行。
 - 登录先异步查 MySQL；查询回调在 Handler 线程中执行，再用 `response->Compute(0, ...)` 把 PBKDF2 验证转移到 Compute。
+- 两处参数 `0` 都是 wfrest 的计算队列 ID，通常对应同一个名为 `wfrest0` 的队列；`POST(..., 0, handler)` 调度整个路由 Handler，`Compute(0, lambda)` 只调度指定 Lambda，并不表示“第 0 个线程”。
 
 MySQL 调用链：
 
@@ -207,7 +226,9 @@ Repository 将原始任务转换为 Result
 Service/Handler 回调在同一调用栈继续生成响应
 ```
 
-`create_mysql_task()` 只创建任务并保存回调，不会立即调用回调。任务必须被 `response->add_task(task)` 或 `task->start()` 调度。
+`create_mysql_task()` 只创建任务并保存回调，不会立即调用回调。任务必须被 `response->add_task(task)` 或 `task->start()` 调度；完成回调一定发生在任务被加入并实际执行之后。`add_task()` 是把任务追加到当前 HTTP 请求的 Workflow 序列，不是立即在当前线程执行。
+
+登录流程可能经历多次线程角色切换：Handler 创建 MySQL 任务 → Poller 负责网络事件 → Handler 执行查询回调 → Compute 验证 PBKDF2；若需要升级密码哈希，还会再追加更新数据库任务并回到 Poller/Handler。SQL 本身由 MySQL 服务端执行。
 
 `success()`/`error()` 只设置 `HttpResp`；Workflow 会在当前请求任务序列完成后发送最终响应。
 
@@ -232,6 +253,8 @@ Service/Handler 回调在同一调用栈继续生成响应
 - 唯一键 `(uid, filename)`：同一用户不能有两个同名文件。
 - `hashcode` 有普通索引，为后续秒传/去重扩展保留。
 
+MySQL 的主键和唯一键都会建立索引：`id` 是主键索引，`username` 是唯一二级索引；文件表的 `(uid, filename)` 也是联合唯一索引。
+
 数据库不保存本地文件路径。实际路径统一由：
 
 ```text
@@ -252,7 +275,7 @@ MySQL 错误处理先区分 Workflow 传输失败与 MySQL ERR Packet。用户�
 
 ## 9. 文件存储与一致性
 
-`FileStorage` 是抽象接口；第一期实现为 `LocalFileStorage`。
+`FileStorage` 是抽象接口；第一期实现为 `LocalFileStorage`。这样 Service 不依赖具体本地实现，也便于测试或替换存储后端。不过当前接口中的 `path_for()` 返回本地文件路径，因此它只做到了第一步解耦；未来真正接入 OSS 时仍可能需要改成流式读写或下载响应接口。
 
 上传流程：
 
@@ -263,7 +286,9 @@ MySQL 错误处理先区分 Workflow 传输失败与 MySQL ERR Packet。用户�
 5. 完整写入后通过 rename 原子发布到 `{root}/{hashcode}`。
 6. 再插入 `tbl_file` 元数据。
 
-存储先于数据库：数据库失败可能留下无引用文件，但不会产生指向缺失内容的数据库记录；无引用文件以后可以安全清理。并发上传相同内容时，rename 冲突会按去重成功处理。
+存储先于数据库：数据库失败可能留下无引用文件，但不会产生指向缺失内容的数据库记录；并发上传相同内容时，rename 冲突会按去重成功处理。
+
+当前项目没有实现无引用文件清理器。以后可由定时维护任务扫描存储目录，与数据库中的去重哈希集合比较，并在等待宽限期和二次确认后清理；`.tmp` 中断上传残留应按另一套过期规则处理。
 
 当前已经具备内容级去重基础，后续“秒传”可以复用 `hashcode`，但第一期没有单独的秒传 API。
 
@@ -277,10 +302,14 @@ MySQL 错误处理先区分 Workflow 传输失败与 MySQL ERR Packet。用户�
 - 密码验证使用 `CRYPTO_memcmp()` 恒定时间比较。
 - 登录成功后，如果数据库中的迭代次数低于当前配置，会自动重新哈希并更新。
 - JWT 使用 HS256，校验 issuer、subject、过期时间；用户 ID 以字符串 claim `uid` 保存。
+- 数据库主键使用 `uint64_t` 是为了匹配 MySQL `BIGINT UNSIGNED`；JWT claim 改存字符串，是为了绕开 jwt-cpp 默认 JSON 只有有符号 64 位整数的边界，同时保留完整取值范围。
 - JWT 密钥至少 32 字符。
+- `AuthMiddleware` 是项目自有的认证辅助类，由受保护 Handler 手动调用，不是 wfrest 自动注册的全局中间件。它解析 Bearer Token、调用 `JwtService::verify()` 并返回用户 ID。
 - 下载查询把 `user_id` 和 `file_id` 同时写进 SQL 条件，避免跨用户访问。
 - 下载文件名使用 `filename*=UTF-8''...` 编码，避免响应头注入。
 - 配置日志不输出数据库用户名、密码和 JWT 密钥，只输出是否已配置。
+
+密码哈希中的 `iterations` 是 PBKDF2 对同一密码执行伪随机函数的轮数，不是登录次数。校验旧密码必须使用数据库编码串中的迭代次数；`needs_rehash()` 再将其与当前配置比较。编码串中的摘要部分解码后是校验时的 `expected` 值。
 
 ## 11. 配置与日志
 
@@ -345,35 +374,37 @@ ctest --test-dir build --output-on-failure
 ## 13. 代码风格与既定偏好
 
 - 当前命名空间以实际代码为准：`webdisk::<module>`；`main()` 和文件内辅助符号可留在全局/匿名命名空间。
+- 项目自有构造函数的成员初始化列表已经统一为花括号直接列表初始化；不要机械修改 `third_party/`。花括号可防止窄化，但仍需留意 `initializer_list` 重载。
+- 当前重构倾向在实现文件中使用完整命名空间限定，避免局部 `using namespace` 或类型导入；遇到 nlohmann JSON 时要按真实构造重载判断，空数组优先写 `auto files = nlohmann::json::array();`，不要写可能生成 `[[]]` 的嵌套花括号形式。
 - 代码标识符、日志和对外消息使用英文；注释可以使用中文。
 - 对复杂控制流、异步顺序、安全边界、存储一致性和重要假设写简洁注释；不要给显而易见代码添加逐行解释。
-- 用户当前明确要求：为项目自身 `src/` 下每个 `class` 顶部添加一句简短职责注释，类似 `Config`；不要改第三方库。该修改尚未完成，见下一节。
+- 对话中已经为多个关键函数和条件补充就地注释；“为项目自身 `src/` 下每个 `class` 顶部添加一句简短职责注释”尚未全量完成，如继续做必须先扫描现状且不要改第三方库。
 - 预期失败使用 `Result`/普通分支，不依赖异常控制流程。第三方库真正抛出的异常可以在边界捕获并转换。
 - `Application`、`Log` 等都不是项目自建单例；依赖和生命周期由对象组合管理。
-- 保留 `std::move(callback)` 以转移异步回调所有权。只有 Lambda 内需要修改或再次移动捕获值时才保留 `mutable`。
+- 保留 `std::move(callback)` 以转移异步回调所有权。捕获列表中的 `callback = std::move(callback)` 本身不要求 `mutable`；只有 Lambda 函数体内需要修改或再次移动按值捕获对象时才需要。当前仅 `AuthService.cc` 保留 3 处必要的 `mutable`。
 - 不要把敏感配置、MySQL URL、密码哈希原始材料或 JWT 密钥写入日志。
 
 ## 14. 当前已验证状态与待处理事项
 
-2026-07-23 在 macOS/AppleClang 环境中重新构建缺失的 spdlog、Workflow 和 wfrest 本地产物后，使用新的 `/tmp/webclouddisk-build.l2vCZz` 构建目录完成了：
+2026-08-05 在当前路径的 `build/` 目录对现有脏工作区重新验证：
 
-- CMake 配置成功。
-- `cmake --build ... --parallel` 全量编译成功，包括 `cloud_disk_server` 和 `cloud_disk_core_tests`。
-- `ctest --output-on-failure` 通过，共 `1/1` 个测试。
-- `AuthService.cc` 的类型限定错误和 `core_tests.cc` 的旧接口名均已修复。
-- 第三方迁移指南中的 `third_party/json`、`json/include` 和 `src/config/AppConfig.cc` 旧名称已全部更新。
+- `cmake --build build --parallel` 成功，生成 `cloud_disk_server` 和 `cloud_disk_core_tests`。
+- `ctest --test-dir build --output-on-failure` 通过，共 `1/1` 个测试。
+- 完整 `git diff --check` 尚未通过，发现两处已有格式问题：`docs/Web网盘项目-Markdown/Web网盘项目.md` 文件末尾多一个空行，`src/log/Log.cc` 第 14 行有尾随空格。这两处不是本次上下文整理修改，提交前应单独修复。
 
 当前待处理事项：
 
-1. 为所有项目类顶部添加一句简短职责注释，不修改第三方库。
-2. 若继续清理 Lambda，可删除只调用 `std::function`、没有修改/移动捕获值的多余 `mutable`；需要 `std::move` 捕获成员的 Lambda 必须保留。
+1. 审核当前大批未提交修改并决定是否拆分提交；不要把源码重构、需求文档扩充和阅读指南无意间混成一个难审查的提交。
+2. 修复上面两处 `git diff --check` 格式问题，再做一次完整编译和测试。
+3. `docs/如何看懂程序.md` 仍是未跟踪文件，其中链接使用旧路径 `/home/lichao/lirui/WebCloudDisk/...`，并有 `src/common/ApiResponse.h` 等疑似旧路径；纳入提交前必须校正和复核。
+4. 如果用户仍希望统一类职责注释，先扫描 `src/` 当前覆盖情况，再只补缺失项。
 
-macOS 默认大小写不敏感文件系统上，Workflow 源码中的 `BUILD` 文件会与 `build` 目录冲突；本次使用 `third_party/workflow/build-macos` 作为构建目录。
+macOS 默认大小写不敏感文件系统上，Workflow 源码中的 `BUILD` 文件会与 `build` 目录冲突；重建第三方 Workflow 时使用 `third_party/workflow/build-macos` 作为构建目录。
 
 ## 15. 建议下次 Codex 的开始顺序
 
-1. 先阅读本文件、`README.md`、第一期需求和当前 `git diff`。
-2. 保留第 2 节列出的待提交修改。
-3. 完成所有项目类顶部的一句职责注释。
-4. 审核并移除真正多余的 `mutable`，不要机械删除需要移动捕获值的情况。
-5. 后续修改仍应在新 build 目录重新配置、完整编译并运行 `ctest`。
+1. 先阅读本文件、`README.md`、需求主文档，再查看真实的 `git status`、最近提交和当前 `git diff`；不要只相信本文件的时间点快照。
+2. 明确用户当前要继续解释、补注释、整理提交，还是开始新功能；未获授权不要实现 Docker/OSS 等后续规划。
+3. 保留第 2 节中的全部未提交成果，只修改本次任务明确涉及的文件。
+4. 若准备提交，先修正文档旧链接和两处 whitespace 问题，按“源码重构与注释 / Docker 与 OSS 文档 / 阅读指南”评估拆分。
+5. 提交前运行 `git diff --check`、`cmake --build build --parallel` 和 `ctest --test-dir build --output-on-failure`。

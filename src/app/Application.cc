@@ -7,20 +7,20 @@ namespace webdisk {
 namespace app {
 
 Application::Application(config::Config config)
-    : config_(std::move(config))
-    , database_(config_.database)
-    , users_(database_)
-    , files_(database_)
-    , password_hasher_(config_.auth.password_iterations)
-    , jwt_service_(config_.auth.jwt_secret, config_.auth.jwt_issuer, config_.auth.token_ttl)
-    , storage_(config_.storage.root)
-    , auth_service_(users_, password_hasher_, jwt_service_)
-    , user_service_(users_)
-    , file_service_(files_, storage_, config_.storage.max_file_size)
-    , auth_middleware_(jwt_service_)
-    , auth_handler_(auth_service_)
-    , user_handler_(auth_middleware_, user_service_)
-    , file_handler_(auth_middleware_, file_service_) {
+    : config_{std::move(config)}
+    , database_{config_.database}
+    , users_{database_}
+    , files_{database_}
+    , password_hasher_{config_.auth.password_iterations}
+    , jwt_service_{config_.auth.jwt_secret, config_.auth.jwt_issuer, config_.auth.token_ttl}
+    , storage_{config_.storage.root}
+    , auth_service_{users_, password_hasher_, jwt_service_}
+    , user_service_{users_}
+    , file_service_{files_, storage_, config_.storage.max_file_size}
+    , auth_middleware_{jwt_service_}
+    , auth_handler_{auth_service_}
+    , user_handler_{auth_middleware_, user_service_}
+    , file_handler_{auth_middleware_, file_service_} {
 }
 
 common::Result<void> Application::init() {
@@ -70,10 +70,13 @@ void Application::register_routes() {
     server_.Static("/", index_file.c_str());
     server_.Static("/static", static_root.c_str());
 
+    // multipart 请求体除文件内容外还包含边界和字段头，因此额外预留 1 MiB，
+    // 并在计算请求上限时避免无符号整数溢出。
     const uint64_t overhead = 1024ULL * 1024ULL;
     const uint64_t request_limit = config_.storage.max_file_size > std::numeric_limits<uint64_t>::max() - overhead
                                        ? config_.storage.max_file_size
                                        : config_.storage.max_file_size + overhead;
+    // wfrest 使用 size_t 表示请求大小上限，因此先截取到当前平台可表示的最大值。
     server_.request_size_limit(
         static_cast<size_t>(std::min<uint64_t>(request_limit, std::numeric_limits<size_t>::max())));
     routes_registered_ = true;

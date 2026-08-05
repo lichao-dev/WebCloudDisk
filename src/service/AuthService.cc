@@ -9,9 +9,9 @@ namespace service {
 
 AuthService::AuthService(const repository::UserRepository& users, const security::PasswordHasher& password_hasher,
                          const security::JwtService& jwt_service)
-    : users_(users)
-    , password_hasher_(password_hasher)
-    , jwt_service_(jwt_service) {
+    : users_{users}
+    , password_hasher_{password_hasher}
+    , jwt_service_{jwt_service} {
 }
 
 void AuthService::register_user(const std::string& username, const std::string& password, const std::string& confirm,
@@ -59,36 +59,41 @@ void AuthService::login(const std::string& username, const std::string& password
         return;
     }
 
-    WFMySQLTask* task = users_.find_by_username(username, [this, password, response, callback = std::move(callback)](
-                                                              common::Result<std::optional<model::User>> result) mutable {
-        if (!result) {
-            callback(common::Result<LoginResult>::failure(result.error().status_code, result.error().message));
-            return;
-        }
-        if (!result.value().has_value()) {
-            LOG_WARN("Login rejected: user not found");
-            callback(common::Result<LoginResult>::failure(401, "Invalid username or password"));
-            return;
-        }
+    // Result 表示数据库查询是否成功，optional<User> 表示查询成功后是否找到用户。
+    WFMySQLTask* task =
+        users_.find_by_username(username, [this, password, response, callback = std::move(callback)](
+                                              common::Result<std::optional<model::User>> result) mutable {
+            if (!result) {
+                callback(common::Result<LoginResult>::failure(result.error().status_code, result.error().message));
+                return;
+            }
+            if (!result.value().has_value()) {
+                LOG_WARN("Login rejected: user not found");
+                callback(common::Result<LoginResult>::failure(401, "Invalid username or password"));
+                return;
+            }
 
-        model::User user = *result.value();
-        // MySQL 回调运行在 Workflow 的处理线程中，而 PBKDF2 会大量占用 CPU。
-        // 将密码验证转移到计算队列，避免阻塞网络和数据库回调线程。
-        response->Compute(0,
-                          [this, user = std::move(user), password, response, callback = std::move(callback)]() mutable {
-                              finish_login(user, password, response, std::move(callback));
-                          });
-    });
+            // 这里的 * 是 std::optional 的“解包”操作，用来取出里面存的 model::User 对象
+            model::User user = *result.value();
+            // MySQL 回调运行在 Workflow 的处理线程中，而 PBKDF2 会大量占用 CPU。
+            // 将密码验证转移到计算队列，避免阻塞网络和数据库回调线程。
+            response->Compute(
+                0, [this, user = std::move(user), password, response, callback = std::move(callback)]() mutable {
+                    finish_login(user, password, response, std::move(callback));
+                });
+        });
     response->add_task(task);
 }
 
 void AuthService::finish_login(const model::User& user, const std::string& password, wfrest::HttpResp* response,
                                LoginCallback callback) const {
     auto verified = password_hasher_.verify(password, user.password_hash);
+    // 验证流程本身失败，例如存储的哈希格式损坏或 PBKDF2 计算出错。
     if (!verified.ok()) {
         callback(common::Result<LoginResult>::failure(verified.error().status_code, verified.error().message));
         return;
     }
+    // 验证正常完成但摘要不匹配，说明用户输入的密码错误。
     if (!verified.value()) {
         LOG_WARN("Login rejected: invalid credentials for user_id={}", user.id);
         callback(common::Result<LoginResult>::failure(401, "Invalid username or password"));
@@ -111,8 +116,8 @@ void AuthService::finish_login(const model::User& user, const std::string& passw
     // 登录成功后顺便升级旧的迭代参数，调整密码策略时无需强制用户重置密码。
     auto upgraded_hash = password_hasher_.hash(password);
     if (!upgraded_hash) {
-        callback(common::Result<LoginResult>::failure(upgraded_hash.error().status_code,
-                                                      upgraded_hash.error().message));
+        callback(
+            common::Result<LoginResult>::failure(upgraded_hash.error().status_code, upgraded_hash.error().message));
         return;
     }
 

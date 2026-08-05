@@ -1,23 +1,21 @@
 #include "security/Sha256.h"
 
-#include "log/Log.h"
-
-#include <openssl/evp.h>
-
 #include <array>
 #include <iomanip>
 #include <sstream>
 
+#include <openssl/evp.h>
+
+#include "log/Log.h"
+
 namespace webdisk {
 namespace security {
 
-using common::Result;
-
-Result<std::string> Sha256::hex(std::string_view content) {
+common::Result<std::string> Sha256::hex(std::string_view content) {
     EVP_MD_CTX* context = EVP_MD_CTX_new();
     if (context == nullptr) {
         LOG_ERROR("Failed to allocate SHA-256 context");
-        return Result<std::string>::failure(500, "Failed to create file hash context");
+        return common::Result<std::string>::failure(500, "Failed to create file hash context");
     }
 
     std::array<unsigned char, EVP_MAX_MD_SIZE> digest{};
@@ -29,7 +27,7 @@ Result<std::string> Sha256::hex(std::string_view content) {
 
     if (!ok) {
         LOG_ERROR("SHA-256 digest computation failed");
-        return Result<std::string>::failure(500, "Failed to compute file hash");
+        return common::Result<std::string>::failure(500, "Failed to compute file hash");
     }
 
     std::ostringstream output;
@@ -37,7 +35,7 @@ Result<std::string> Sha256::hex(std::string_view content) {
     for (unsigned int index = 0; index < digest_size; ++index) {
         output << std::setw(2) << static_cast<unsigned int>(digest[index]);
     }
-    return Result<std::string>::success(output.str());
+    return common::Result<std::string>::success(output.str());
 }
 
 } // namespace security

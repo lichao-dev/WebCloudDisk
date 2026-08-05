@@ -1,8 +1,8 @@
 #pragma once
 
-#include "storage/FileStorage.h"
-
 #include <filesystem>
+
+#include "storage/FileStorage.h"
 
 namespace webdisk {
 namespace storage {
@@ -17,7 +17,8 @@ public:
     common::Result<std::filesystem::path> path_for(const std::string& hashcode) const override;
 
 private:
-    static bool valid_hashcode(const std::string& hashcode);
+    static bool is_valid_hashcode(const std::string& hashcode);
+    // 根据文件的 hashcode，生成一个带随机后缀的临时文件路径
     common::Result<std::filesystem::path> temporary_path(const std::string& hashcode) const;
 
     std::filesystem::path root_;

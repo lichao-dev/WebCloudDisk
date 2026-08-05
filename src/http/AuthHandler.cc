@@ -34,7 +34,7 @@ std::string string_field(const nlohmann::json& body, const char* field) {
 } // namespace
 
 AuthHandler::AuthHandler(const service::AuthService& service)
-    : service_(service) {
+    : service_{service} {
 }
 
 void AuthHandler::register_user(const wfrest::HttpReq* request, wfrest::HttpResp* response) const {
@@ -72,7 +72,7 @@ void AuthHandler::login(const wfrest::HttpReq* request, wfrest::HttpResp* respon
                            error(response, result.error());
                            return;
                        }
-                       nlohmann::json data = {
+                       nlohmann::json data{
                            {"accessToken", result.value().access_token},
                            {"tokenType", "Bearer"},
                            {"user",

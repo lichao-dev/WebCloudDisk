@@ -69,11 +69,11 @@ sudo apt install -y build-essential cmake libssl-dev zlib1g-dev
 先创建数据库，再执行第一份迁移脚本：
 
 ```bash
-mysql -u root -p -e "CREATE DATABASE CloudDisk CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;"
-mysql -u root -p CloudDisk < sql/001_init.sql
+mysql -u root -p -e "CREATE DATABASE cloud_disk CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;"
+mysql -u root -p cloud_disk < sql/001_init.sql
 ```
 
-如果 `CloudDisk` 已存在，可以跳过第一条命令。初始化脚本面向 MySQL 8.0；MySQL 5.7 不支持 `utf8mb4_0900_ai_ci`，需要改用该版本支持的排序规则。
+如果 `cloud_disk` 已存在，可以跳过第一条命令。初始化脚本面向 MySQL 8.0；MySQL 5.7 不支持 `utf8mb4_0900_ai_ci`，需要改用该版本支持的排序规则。
 
 迁移脚本使用编号前缀，是为了后续按 `001`、`002`、`003` 的顺序持续演进数据库结构。
 

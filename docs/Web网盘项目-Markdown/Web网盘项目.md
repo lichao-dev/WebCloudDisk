@@ -459,13 +459,11 @@ Docker 镜像是一个特殊的文件系统，除了提供容器运行时所需�
 
 里面存放了很多镜像的集合，镜像的集合我们称之为Repository，比如：library/ubuntu。
 
-```bash
-3健壮性：通俗地讲，就是系统的“抗打击能力”或“皮实程度”。一个健壮的程序，不是“不会出错”，而是在出错时不会崩溃或产生灾难性后果。
-```
-
 理解了这三个概念，对理解Docker 至关重要。
 
 ## 2.3 安装
+
+### 2.3.1 Linux
 
 本节将介绍如何在Ubuntu 系统上安装Docker，并配置国内镜像加速。在开始安装之前，我们需要确认系统版本是否满
 
@@ -508,14 +506,12 @@ UBUNTU_CODENAME=jammy
 2. 卸载旧版本，如果有的话
 
 ```bash
-sudo apt remove $(dpkg --get-selections docker.io docker-compose docker-compose-v2 docker-doc
+sudo apt remove $(dpkg --get-selections docker.io docker-compose docker-compose-v2 docker-doc podman-docker containerd runc | cut -f1)
 ```
 
 ![Docker 架构示意图](Web网盘项目.assets/docker-architecture.png)
 
-```bash
-podman-docker containerd runc | cut -f1)
-```
+
 
 3. 设置Docker 的apt 仓库
 
@@ -608,6 +604,8 @@ https://docs.docker.com/get-started/
 ```
 
 详细信息见：Install Docker Engine
+
+### 2.3.2 macOS
 
 ## 2.4 Docker 命令
 
@@ -769,4 +767,280 @@ docker network create mynetwork
 docker network inspect mynetwork
 # 启动容器并连接到自定义网络
 docker run -d --name app1 --network mynetwork nginx
+```
+
+---
+
+# 3 第二期：阿里云对象存储OSS
+
+在企业开发中，容灾4 备份5 是至关重要的。因此，我们需要一套成熟的方案来解决这个问题。遗憾的是，企业自建解决
+
+方案，基本上不可能的。原因有两个：1) 成本太高；2) 无论是数据同步还是错误恢复，实现难度都非常大。
+
+这种情况下，企业往往会使用现有的成熟的云存储方案。使用云存储方案之后，数据丢失的问题基本上就不会发生了，而
+
+且也减少了开发和运维的工作量。在我们这个项目中，我们使用的云产品是阿里云对象存储OSS。
+
+## 3.1 快速了解OSS
+
+请查看阿里云官方网站：什么是对象存储OSS。
+
+核心概念：
+
+想要顺利使用OSS，我们必须先了解下面几个基本概念：
+
+- 存储空间（Bucket）
+
+存储空间是用户用于存储对象（Object）的容器，所有的对象都必须隶属于某个存储空间。存储空间具有各种配置
+
+属性，包括地域、访问权限、存储类型等。用户可以根据实际需求，创建不同类型的存储空间来存储不同的数据。
+
+```bash
+4容灾：容灾的目的是当主系统所在地发生大范围灾难时（比如地震等），能够快速在另一个地方把整个业务系统重新搭建起来。
+5备份：简单来说，就是为数据创建一个独立的、可恢复的副本。
+```
+
+- 对象（Object）
+
+对象是OSS 存储数据的基本单元，也被称为OSS 的文件。和传统的文件系统不同，对象没有文件目录层级结构的
+
+关系。对象由元数据（Object Meta）、用户数据（Data）和文件名（Key）组成，并且由存储空间内部唯一的Key
+
+来标识。对象元数据是一组键值对，表示了对象的一些属性，例如文件类型、编码方式等信息，同时用户也可以在
+
+元数据中存储一些自定义的信息。
+
+- 对象名（ObjectKey）
+
+有时也叫ObjectName，是对象所在存储空间（Bucket）的完整名称，包含完整路径和后缀名，如：abc/efg/123.jpg。
+
+- Object 类型— Object 有三种类型：
+
+– Normal：通过简单上传生成的Object。上传结束之后内容是固定的，只能读取，不能修改。如果Object 内容
+
+发生了改变，只能重新上传同名的Object 来覆盖之前的内容。简单上传适用于上传小于5 GB 的单个文件、一
+
+次HTTP 请求交互即可完成上传的场景。
+
+– Multipart：通过分片上传生成的Object。上传结束之后内容是固定的，只能读取，不能修改。如果Object 内
+
+容发生了改变，只能重新上传同名的Object 来覆盖之前的内容。分片上传适用于大文件加速上传、网络环境
+
+较差、文件大小不确定的场景。
+
+– Appendable：通过追加上传生成的Object。顾名思义，Appendable 对象是可以追加数据的。追加上传适用于
+
+视频监控、视频直播等领域生成的实时视频流场景。
+
+重要：OSS 不支持不同类型的Object 相互转换。
+
+- Region（地域）
+
+Region 表示OSS 的数据中心所在物理位置。创建Bucket 时需指定Region。Bucket 创建成功后，不能更改Region。
+
+该Bucket 下所有的Object 都存储在Region 对应的数据中心。
+
+- Endpoint（访问域名）
+
+Endpoint 表示OSS 对外服务的访问域名。OSS 以HTTP RESTful API 的形式对外提供服务，访问不同的Region，
+
+需要不同的域名。内网和外网访问同一个Region 所需要的Endpoint 也是不同的。
+
+详细内容请参见：各个Region 对应的Endpoint。
+
+- AccessKey（访问密钥）
+
+AccessKey 简称AK，指的是访问身份验证中用到的AccessKey ID 和AccessKey Secret。OSS 通过使用AccessKey
+
+ID 和AccessKey Secret 对称加密的方法来验证某个请求的发送者身份。AccessKey ID 用于标识用户；AccessKey
+
+Secret 是用户用于加密签名字符串和OSS 用来验证签名字符串的密钥，必须保密。
+
+详细内容请参见：创建AccessKey。
+
+## 3.2 控制台操作
+
+详细内容请参见：控制台快速入门
+
+## 3.3 安装OSS C++ SDK
+
+```bash
+# 安装依赖库
+sudo apt install libssl-dev
+sudo apt install libcurl4-openssl-dev
+# 解压缩C++ SDK 安装包
+tar xzvf aliyun-oss-cpp-sdk-1.10.0.tar.gz
+cd aliyun-oss-cpp-sdk-1.10.0
+# 安装C++ SDK
+```
+
+```bash
+mkdir build && cd build
+cmake ..
+make
+sudo make install
+sudo ldconfig
+```
+
+安装成功后，/usr/local/lib/目录下会多一个静态库libalibabacloud-oss-cpp-sdk.a；/usr/local/include/目录
+
+下会多一个文件夹alibabacloud，里面放的是头文件。
+
+### 编译链接选项
+
+重要：OSS C++ SDK 默认关闭了rtti 属性。因此使用g++编译链接时，请添加-fno-rtti -lalibabacloud-oss-
+
+```bash
+cpp-sdk -lcurl -lcrypto -lpthread。
+```
+
+详细内容请参见：安装C++ SDK。
+
+## 3.4 示例：上传文件
+
+在OSS 中，操作的基本数据单元是文件（Object）。OSS C++ SDK 提供了丰富的文件上传方式，在我们的项目中，使用
+
+简单上传即可。简单上传：包括从内存上传和从本地上传，最大不能超过5GB。
+
+1. 从内存上传
+
+**oss_upload1.cc**
+
+```cpp
+#include <alibabacloud/oss/OssClient.h>
+using namespace std;
+using namespace AlibabaCloud::OSS;
+int main(void)
+{
+8
+// 1. 初始化网络等资源
+9
+InitializeSdk();
+10
+// 2. 设置OSS 账号信息，创建OssClient
+11
+string endpoint = "oss-cn-wuhan-lr.aliyuncs.com";
+12
+string accessKeyId = "LTAI5tHQTUfRRD7DTnRcC9DZ";
+13
+string accessKeySecret = "BCm5w87LsnCHBL0w6MXwZAnJYY0XoN";
+14
+string region = "cn-wuhan";
+15
+ClientConfiguration conf;
+16
+OssClient client(endpoint, accessKeyId, accessKeySecret, conf);
+17
+client.SetRegion(region);
+18
+// 3. 上传文件
+19
+string bucketName = "peanutixx-oss-demo";
+20
+string objectName = "dir/demo1.txt";
+21
+string content = "Hello AlibbaCloud OSS";
+22
+shared_ptr<iostream> stream = make_shared<stringstream>(move(content));
+23
+PutObjectRequest request(bucketName, objectName, stream);
+24
+auto outcome = client.PutObject(request);
+25
+// 4. 错误处理
+26
+if (!outcome.isSuccess()) {
+27
+cout << "PutObject FAILED"
+28
+<< ", code:" << outcome.error().Code()
+```
+
+```bash
+29
+<< ", message:" << outcome.error().Message()
+30
+<< ", requestId:" << outcome.error().RequestId() << endl;
+31
+exit(1);
+32
+}
+33
+// 5. 释放网络等资源。
+34
+ShutdownSdk();
+35
+return 0;
+}
+```
+
+2. 从本地上传
+
+**oss_upload2.cc**
+
+```cpp
+#include <alibabacloud/oss/OssClient.h>
+using namespace std;
+using namespace AlibabaCloud::OSS;
+int main(void)
+{
+8
+// 1. 初始化网络等资源
+9
+InitializeSdk();
+10
+// 2. 设置OSS 账号信息，创建OssClient 对象
+11
+string endpoint = "oss-cn-wuhan-lr.aliyuncs.com";
+12
+string accessKeyId = "LTAI5tHQTUfRRD7DTnRcC9DZ";
+13
+string accessKeySercret = "BCm5w87LsnCHBL0w6MXwZAnJYY0XoN";
+14
+string region = "cn-wuhan";
+15
+ClientConfiguration conf;
+16
+OssClient client(endpoint, accessKeyId, accessKeySercret, conf);
+17
+client.SetRegion(region);
+18
+// 3. 上传文件
+19
+string bucketName = "peanutixx-oss-demo";
+20
+string objectName = "dir/demo2.txt";
+21
+auto outcome = client.PutObject(bucketName, objectName, "a.txt");
+22
+// 4. 处理错误
+23
+if (!outcome.isSuccess()) {
+24
+cout << "PutObject FAILED"
+25
+<< ", code:" << outcome.error().Code()
+26
+<< ", message:" << outcome.error().Message()
+27
+<< ", requestId:" << outcome.error().RequestId() << endl;
+28
+exit(1);
+29
+}
+30
+// 5. 释放网络等资源
+31
+ShutdownSdk();
+32
+return 0;
+}
+```
+
+### 注意事项
+
+在整个程序的生命周期中，InitializeSdk() 和ShutdownSdk() 应该各只执行一次！使用SDK 之前，执行
+
+```bash
+InitializeSdk()；SDK 使用完毕之后（后续不再使用），执行ShutdownSdk()。
 ```

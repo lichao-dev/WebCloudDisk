@@ -17,7 +17,7 @@ namespace webdisk {
 namespace service {
 
 struct UploadedFile {
-    std::uint64_t file_id;
+    uint64_t file_id;
     std::string filename;
 };
 
@@ -32,20 +32,21 @@ public:
     using UploadCallback = std::function<void(common::Result<UploadedFile>)>;
     using DownloadCallback = std::function<void(common::Result<DownloadFile>)>;
 
-    FileService(const repository::FileRepository& files, storage::FileStorage& storage, std::uint64_t max_file_size);
+    FileService(const repository::FileRepository& files, storage::FileStorage& storage, uint64_t max_file_size);
 
-    void list(std::uint64_t user_id, wfrest::HttpResp* response, ListCallback callback) const;
-    void upload(std::uint64_t user_id, const std::string& untrusted_filename, const std::string& content,
+    void list(uint64_t user_id, wfrest::HttpResp* response, ListCallback callback) const;
+    void upload(uint64_t user_id, const std::string& untrusted_filename, const std::string& content,
                 wfrest::HttpResp* response, UploadCallback callback) const;
-    void find_download(std::uint64_t user_id, std::uint64_t file_id, wfrest::HttpResp* response,
+    void find_download(uint64_t user_id, uint64_t file_id, wfrest::HttpResp* response,
                        DownloadCallback callback) const;
 
 private:
+    // 把文件名清理成安全、合法、适合存储或使用的形式
     static common::Result<std::string> sanitize_filename(const std::string& filename);
 
     const repository::FileRepository& files_;
     storage::FileStorage& storage_;
-    std::uint64_t max_file_size_;
+    uint64_t max_file_size_;
 };
 
 } // namespace service

@@ -24,7 +24,9 @@ struct AppError {
 template <typename T>
 class Result {
 public:
+    // 创建成功结果
     static Result success(T value) { return Result(std::move(value)); }
+    // 创建失败结果
     static Result failure(int status_code, std::string message) {
         return Result(AppError{status_code, std::move(message)});
     }
@@ -45,9 +47,9 @@ public:
 
 private:
     explicit Result(T value)
-        : value_(std::move(value)) {}
+        : value_{std::move(value)} {}
     explicit Result(AppError error)
-        : value_(std::move(error)) {}
+        : value_{std::move(error)} {}
 
     // 存储 Result 的结果状态。
     // std::variant<T, AppError> 表示两种互斥状态：
@@ -60,7 +62,9 @@ private:
 template <>
 class Result<void> {
 public:
+    // 创建成功结果
     static Result success() { return Result(); }
+    // 创建失败结果
     static Result failure(int status_code, std::string message) {
         return Result(AppError{status_code, std::move(message)});
     }
@@ -74,7 +78,7 @@ public:
 private:
     Result() = default;
     explicit Result(AppError error)
-        : error_(std::move(error)) {}
+        : error_{std::move(error)} {}
 
     std::optional<AppError> error_;
 };

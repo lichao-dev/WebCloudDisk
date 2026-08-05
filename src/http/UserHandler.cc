@@ -7,13 +7,9 @@
 namespace webdisk {
 namespace http {
 
-using common::Result;
-using model::User;
-using service::UserService;
-
-UserHandler::UserHandler(const AuthMiddleware& auth, const UserService& service)
-    : auth_(auth)
-    , service_(service) {
+UserHandler::UserHandler(const AuthMiddleware& auth, const service::UserService& service)
+    : auth_{auth}
+    , service_{service} {
 }
 
 void UserHandler::current_user(const wfrest::HttpReq* request, wfrest::HttpResp* response) const {
@@ -23,12 +19,12 @@ void UserHandler::current_user(const wfrest::HttpReq* request, wfrest::HttpResp*
         return;
     }
 
-    service_.get_current_user(context.value().user_id, response, [response](Result<User> result) {
+    service_.get_current_user(context.value().user_id, response, [response](common::Result<model::User> result) {
         if (!result) {
             error(response, result.error());
             return;
         }
-        nlohmann::json data = {
+        nlohmann::json data{
             {"userId", result.value().id},
             {"username", result.value().username},
             {"createdAt", result.value().created_at},

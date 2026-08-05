@@ -19,7 +19,7 @@ namespace {
 
 constexpr size_t SALT_SIZE = 16;
 constexpr size_t HASH_SIZE = 32;
-constexpr std::string_view kAlgorithm = "pbkdf2-sha256";
+constexpr std::string_view ALGORITHM = "pbkdf2-sha256";
 
 // 把二进制数据转换成可打印的字符串格式
 std::string base64_encode(const unsigned char* data, size_t size) {
@@ -92,7 +92,7 @@ std::vector<std::string> split_hash(const std::string& encoded) {
 } // namespace
 
 PasswordHasher::PasswordHasher(int iterations)
-    : iterations_(iterations) {
+    : iterations_{iterations} {
 }
 
 common::Result<std::string> PasswordHasher::hash(const std::string& password) const {
@@ -114,7 +114,7 @@ common::Result<std::string> PasswordHasher::hash(const std::string& password) co
     // 该格式包含验证密码所需的全部信息，便于存储到数据库并在登录时重新计算校验。
     std::string encoded;
     encoded.reserve(128);
-    encoded.append(kAlgorithm);
+    encoded.append(ALGORITHM);
     encoded.push_back('$');
     encoded.append(std::to_string(iterations_));
     encoded.push_back('$');
@@ -127,7 +127,7 @@ common::Result<std::string> PasswordHasher::hash(const std::string& password) co
 
 common::Result<bool> PasswordHasher::verify(const std::string& password, const std::string& encoded_hash) const {
     const auto parts = split_hash(encoded_hash);
-    if (parts.size() != 4 || parts[0] != kAlgorithm) {
+    if (parts.size() != 4 || parts[0] != ALGORITHM) {
         LOG_ERROR("Stored password hash has an invalid format");
         return common::Result<bool>::failure(500, "Invalid password hash format");
     }
@@ -136,6 +136,8 @@ common::Result<bool> PasswordHasher::verify(const std::string& password, const s
     const char* begin = parts[1].data();
     const char* end = begin + parts[1].size();
     const auto parsed = std::from_chars(begin, end, stored_iterations);
+    // parsed.ec 非空表示整数解析失败；parsed.ptr 未到 end 表示存在未解析的多余字符；
+    // stored_iterations 小于 1 表示迭代次数不是正数。
     if (parsed.ec != std::errc{} || parsed.ptr != end || stored_iterations < 1) {
         LOG_ERROR("Stored password hash has an invalid iteration count");
         return common::Result<bool>::failure(500, "Invalid password hash iteration count");
@@ -143,6 +145,7 @@ common::Result<bool> PasswordHasher::verify(const std::string& password, const s
 
     auto salt = base64_decode(parts[2]);
     auto expected = base64_decode(parts[3]);
+    // 盐值和摘要必须能被 Base64 解码，且解码后的字节数必须符合当前哈希格式约定。
     if (!salt || !expected || salt.value().size() != SALT_SIZE || expected.value().size() != HASH_SIZE) {
         LOG_ERROR("Stored password hash has invalid salt or digest data");
         return common::Result<bool>::failure(500, "Invalid password hash format");
@@ -159,9 +162,10 @@ common::Result<bool> PasswordHasher::verify(const std::string& password, const s
     return common::Result<bool>::success(matches);
 }
 
+// 哈希格式无效或保存的 PBKDF2 迭代次数低于当前配置时，需要重新生成密码哈希。
 bool PasswordHasher::needs_rehash(const std::string& encoded_hash) const {
     const auto parts = split_hash(encoded_hash);
-    if (parts.size() != 4 || parts[0] != kAlgorithm) {
+    if (parts.size() != 4 || parts[0] != ALGORITHM) {
         return true;
     }
 

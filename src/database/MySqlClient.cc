@@ -7,7 +7,7 @@ namespace webdisk {
 namespace db {
 
 MySqlClient::MySqlClient(const config::Config::Database& config)
-    : retry_max_(config.retry_max) {
+    : retry_max_{config.retry_max} {
     // Workflow 通过 URL 接收 MySQL 连接信息。必须编码用户名和密码，
     // 避免其中的 '@'、':' 等字符破坏 URL 结构。
     url_ = "mysql://" + StringUtil::url_encode_component(config.username) + ":" +

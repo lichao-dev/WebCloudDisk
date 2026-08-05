@@ -14,7 +14,7 @@ class JwtService {
 public:
     JwtService(std::string secret, std::string issuer, std::chrono::seconds token_ttl);
 
-    common::Result<std::string> generate(std::uint64_t user_id) const;
+    common::Result<std::string> generate(uint64_t user_id) const;
     common::Result<model::AuthContext> verify(const std::string& token) const;
 
 private:

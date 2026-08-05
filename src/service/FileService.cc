@@ -8,50 +8,50 @@
 namespace webdisk {
 namespace service {
 
-using common::Result;
-using model::FileInfo;
-using repository::FileRepository;
-using security::Sha256;
-using storage::FileStorage;
-
-FileService::FileService(const FileRepository& files, FileStorage& storage, std::uint64_t max_file_size)
-    : files_(files)
-    , storage_(storage)
-    , max_file_size_(max_file_size) {
+FileService::FileService(const repository::FileRepository& files, storage::FileStorage& storage, uint64_t max_file_size)
+    : files_{files}
+    , storage_{storage}
+    , max_file_size_{max_file_size} {
 }
 
-Result<std::string> FileService::sanitize_filename(const std::string& filename) {
-    const std::size_t slash = filename.find_last_of("/\\");
+common::Result<std::string> FileService::sanitize_filename(const std::string& filename) {
+    // 查找文件名中最后一个 / 或 \，只保留最后的基础文件名，同时兼容 Linux/macOS 路径 和 Windows 路径
+    const size_t slash = filename.find_last_of("/\\");
     std::string base = slash == std::string::npos ? filename : filename.substr(slash + 1);
+
+    // 防止空文件名、当前目录.、上级目录..、超过数据库 VARCHAR(255) 的长度
+    // 空字符导致字符串截断或文件 API 解析差异、回车换行导致 HTTP 响应头注入
     if (base.empty() || base == "." || base == ".." || base.size() > 255 || base.find('\0') != std::string::npos ||
         base.find('\r') != std::string::npos || base.find('\n') != std::string::npos) {
-        return Result<std::string>::failure(400, "Invalid filename");
+        return common::Result<std::string>::failure(400, "Invalid filename");
     }
-    return Result<std::string>::success(std::move(base));
+
+    // 成功时返回安全的基础文件名
+    return common::Result<std::string>::success(std::move(base));
 }
 
-void FileService::list(std::uint64_t user_id, wfrest::HttpResp* response, ListCallback callback) const {
+void FileService::list(uint64_t user_id, wfrest::HttpResp* response, ListCallback callback) const {
     response->add_task(files_.list_by_user(user_id, std::move(callback)));
 }
 
-void FileService::upload(std::uint64_t user_id, const std::string& untrusted_filename, const std::string& content,
+void FileService::upload(uint64_t user_id, const std::string& untrusted_filename, const std::string& content,
                          wfrest::HttpResp* response, UploadCallback callback) const {
     if (content.size() > max_file_size_) {
         LOG_WARN("Upload rejected: user_id={}, size={}, max_size={}", user_id, content.size(), max_file_size_);
-        callback(Result<UploadedFile>::failure(413, "File size exceeds the limit"));
+        callback(common::Result<UploadedFile>::failure(413, "File size exceeds the limit"));
         return;
     }
 
     auto filename = sanitize_filename(untrusted_filename);
     if (!filename) {
         LOG_DEBUG("Upload rejected because of invalid filename: user_id={}", user_id);
-        callback(Result<UploadedFile>::failure(filename.error().status_code, filename.error().message));
+        callback(common::Result<UploadedFile>::failure(filename.error().status_code, filename.error().message));
         return;
     }
 
-    auto hashcode = Sha256::hex(content);
+    auto hashcode = security::Sha256::hex(content);
     if (!hashcode) {
-        callback(Result<UploadedFile>::failure(hashcode.error().status_code, hashcode.error().message));
+        callback(common::Result<UploadedFile>::failure(hashcode.error().status_code, hashcode.error().message));
         return;
     }
 
@@ -59,52 +59,55 @@ void FileService::upload(std::uint64_t user_id, const std::string& untrusted_fil
     // 但不会产生指向缺失文件的记录；无引用文件后续可以安全清理。
     auto stored = storage_.store_if_absent(hashcode.value(), content);
     if (!stored.ok()) {
-        callback(Result<UploadedFile>::failure(stored.error().status_code, stored.error().message));
+        callback(common::Result<UploadedFile>::failure(stored.error().status_code, stored.error().message));
         return;
     }
 
     const std::string safe_filename = filename.value();
-    const std::uint64_t file_size = static_cast<std::uint64_t>(content.size());
+    const uint64_t file_size = static_cast<uint64_t>(content.size());
     const bool content_created = stored.value();
     WFMySQLTask* task = files_.create(
         user_id, safe_filename, hashcode.value(), file_size,
         [user_id, safe_filename, file_size, content_created,
-         callback = std::move(callback)](Result<std::uint64_t> result) mutable {
+         callback = std::move(callback)](common::Result<uint64_t> result) {
             if (!result) {
-                callback(Result<UploadedFile>::failure(result.error().status_code, result.error().message));
+                callback(common::Result<UploadedFile>::failure(result.error().status_code, result.error().message));
                 return;
             }
             LOG_INFO("File uploaded: user_id={}, file_id={}, size={}, new_content={}", user_id, result.value(),
                      file_size, content_created);
-            callback(Result<UploadedFile>::success(UploadedFile{result.value(), safe_filename}));
+            callback(common::Result<UploadedFile>::success(UploadedFile{result.value(), safe_filename}));
         });
     response->add_task(task);
 }
 
-void FileService::find_download(std::uint64_t user_id, std::uint64_t file_id, wfrest::HttpResp* response,
+void FileService::find_download(uint64_t user_id, uint64_t file_id, wfrest::HttpResp* response,
                                 DownloadCallback callback) const {
+    // Result 表示数据库查询是否成功，optional<FileInfo> 表示是否找到当前用户拥有的文件；
+    // 文件不存在或不属于当前用户都会返回空值，并统一映射为 404。
     WFMySQLTask* task = files_.find_owned(
         user_id, file_id,
-        [this, user_id, file_id, callback = std::move(callback)](Result<std::optional<FileInfo>> result) mutable {
+        [this, user_id, file_id,
+         callback = std::move(callback)](common::Result<std::optional<model::FileInfo>> result) {
             if (!result) {
-                callback(Result<DownloadFile>::failure(result.error().status_code, result.error().message));
+                callback(common::Result<DownloadFile>::failure(result.error().status_code, result.error().message));
                 return;
             }
             if (!result.value().has_value()) {
                 LOG_DEBUG("Download target not found: user_id={}, file_id={}", user_id, file_id);
-                callback(Result<DownloadFile>::failure(404, "File not found"));
+                callback(common::Result<DownloadFile>::failure(404, "File not found"));
                 return;
             }
 
-            const FileInfo& file = *result.value();
+            const model::FileInfo& file = *result.value();
             auto path = storage_.path_for(file.hashcode);
             if (!path || !storage_.exists(file.hashcode)) {
                 LOG_ERROR("Stored content missing: user_id={}, file_id={}", user_id, file_id);
-                callback(Result<DownloadFile>::failure(404, "File not found"));
+                callback(common::Result<DownloadFile>::failure(404, "File not found"));
                 return;
             }
             LOG_DEBUG("File download prepared: user_id={}, file_id={}", user_id, file_id);
-            callback(Result<DownloadFile>::success(DownloadFile{file.filename, path.value()}));
+            callback(common::Result<DownloadFile>::success(DownloadFile{file.filename, path.value()}));
         });
     response->add_task(task);
 }

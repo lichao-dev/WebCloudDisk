@@ -11,6 +11,7 @@
 
 namespace webdisk {
 namespace log {
+
 namespace {
 
 std::optional<spdlog::level::level_enum> parse_level(std::string_view level) {
