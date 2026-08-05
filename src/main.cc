@@ -1,13 +1,13 @@
-#include "app/Application.h"
-#include "config/Config.h"
-#include "log/Log.h"
-
-#include <workflow/WFFacilities.h>
-
 #include <csignal>
 #include <filesystem>
 #include <iostream>
 #include <string_view>
+
+#include <workflow/WFFacilities.h>
+
+#include "app/Application.h"
+#include "config/Config.h"
+#include "log/Log.h"
 
 namespace {
 

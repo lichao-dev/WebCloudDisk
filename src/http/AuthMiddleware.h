@@ -1,10 +1,10 @@
 #pragma once
 
+#include <wfrest/HttpServer.h>
+
 #include "common/Result.h"
 #include "model/AuthContext.h"
 #include "security/JwtService.h"
-
-#include <wfrest/HttpServer.h>
 
 namespace webdisk {
 namespace http {

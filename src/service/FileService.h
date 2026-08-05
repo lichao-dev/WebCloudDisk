@@ -1,17 +1,17 @@
 #pragma once
 
-#include "common/Result.h"
-#include "model/FileInfo.h"
-#include "repository/FileRepository.h"
-#include "storage/FileStorage.h"
-
-#include <wfrest/HttpServer.h>
-
 #include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <string>
 #include <vector>
+
+#include <wfrest/HttpServer.h>
+
+#include "common/Result.h"
+#include "model/FileInfo.h"
+#include "repository/FileRepository.h"
+#include "storage/FileStorage.h"
 
 namespace webdisk {
 namespace service {

@@ -1,9 +1,9 @@
 #include "service/FileService.h"
 
+#include <utility>
+
 #include "log/Log.h"
 #include "security/Sha256.h"
-
-#include <utility>
 
 namespace webdisk {
 namespace service {

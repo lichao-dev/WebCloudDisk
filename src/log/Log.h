@@ -1,9 +1,9 @@
 #pragma once
 
+#include <spdlog/spdlog.h>
+
 #include "common/Result.h"
 #include "config/Config.h"
-
-#include <spdlog/spdlog.h>
 
 namespace webdisk {
 namespace log {

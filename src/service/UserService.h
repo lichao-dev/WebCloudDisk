@@ -1,13 +1,13 @@
 #pragma once
 
-#include "common/Result.h"
-#include "model/User.h"
-#include "repository/UserRepository.h"
+#include <cstdint>
+#include <functional>
 
 #include <wfrest/HttpServer.h>
 
-#include <cstdint>
-#include <functional>
+#include "common/Result.h"
+#include "model/User.h"
+#include "repository/UserRepository.h"
 
 namespace webdisk {
 namespace service {

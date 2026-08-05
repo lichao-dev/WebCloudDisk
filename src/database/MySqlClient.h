@@ -1,11 +1,11 @@
 #pragma once
 
-#include "config/Config.h"
+#include <functional>
+#include <string>
 
 #include <workflow/WFTaskFactory.h>
 
-#include <functional>
-#include <string>
+#include "config/Config.h"
 
 namespace webdisk {
 namespace db {

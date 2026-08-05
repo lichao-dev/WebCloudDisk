@@ -1,8 +1,8 @@
 #include "http/UserHandler.h"
 
-#include "http/ApiResponse.h"
-
 #include <nlohmann/json.hpp>
+
+#include "http/ApiResponse.h"
 
 namespace webdisk {
 namespace http {

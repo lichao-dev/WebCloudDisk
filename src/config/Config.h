@@ -1,12 +1,12 @@
 #pragma once
 
-#include "common/Result.h"
-
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <string>
+
+#include "common/Result.h"
 
 namespace webdisk {
 namespace config {

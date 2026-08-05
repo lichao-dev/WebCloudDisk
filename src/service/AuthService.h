@@ -1,16 +1,16 @@
 #pragma once
 
+#include <cstdint>
+#include <functional>
+#include <string>
+
+#include <wfrest/HttpServer.h>
+
 #include "common/Result.h"
 #include "model/User.h"
 #include "repository/UserRepository.h"
 #include "security/JwtService.h"
 #include "security/PasswordHasher.h"
-
-#include <wfrest/HttpServer.h>
-
-#include <cstdint>
-#include <functional>
-#include <string>
 
 namespace webdisk {
 namespace service {

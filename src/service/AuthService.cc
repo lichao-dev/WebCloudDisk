@@ -1,8 +1,8 @@
 #include "service/AuthService.h"
 
-#include "log/Log.h"
-
 #include <utility>
+
+#include "log/Log.h"
 
 namespace webdisk {
 namespace service {

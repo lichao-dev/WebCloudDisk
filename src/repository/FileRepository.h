@@ -1,14 +1,14 @@
 #pragma once
 
-#include "common/Result.h"
-#include "database/MySqlClient.h"
-#include "model/FileInfo.h"
-
 #include <cstdint>
 #include <functional>
 #include <optional>
 #include <string>
 #include <vector>
+
+#include "common/Result.h"
+#include "database/MySqlClient.h"
+#include "model/FileInfo.h"
 
 namespace webdisk {
 namespace repository {

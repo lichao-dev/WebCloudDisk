@@ -1,11 +1,11 @@
 #pragma once
 
-#include "common/Result.h"
-#include "model/AuthContext.h"
-
 #include <chrono>
 #include <cstdint>
 #include <string>
+
+#include "common/Result.h"
+#include "model/AuthContext.h"
 
 namespace webdisk {
 namespace security {

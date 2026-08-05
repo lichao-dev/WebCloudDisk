@@ -1,13 +1,13 @@
 #include "log/Log.h"
 
-#include <spdlog/sinks/rotating_file_sink.h>
-#include <spdlog/sinks/stdout_color_sinks.h>
-
 #include <filesystem>
 #include <memory>
 #include <optional>
 #include <string_view>
 #include <vector>
+
+#include <spdlog/sinks/rotating_file_sink.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
 
 namespace webdisk {
 namespace log {

@@ -1,15 +1,15 @@
 #include "storage/LocalFileStorage.h"
 
-#include "log/Log.h"
-
-#include <openssl/rand.h>
-
 #include <array>
 #include <cctype>
 #include <fstream>
 #include <iomanip>
 #include <sstream>
 #include <system_error>
+
+#include <openssl/rand.h>
+
+#include "log/Log.h"
 
 namespace webdisk {
 namespace storage {

@@ -1,8 +1,8 @@
 #pragma once
 
-#include "common/Result.h"
-
 #include <string>
+
+#include "common/Result.h"
 
 namespace webdisk {
 namespace security {

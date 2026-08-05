@@ -1,9 +1,9 @@
 #pragma once
 
+#include <wfrest/HttpServer.h>
+
 #include "http/AuthMiddleware.h"
 #include "service/UserService.h"
-
-#include <wfrest/HttpServer.h>
 
 namespace webdisk {
 namespace http {

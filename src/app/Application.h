@@ -1,5 +1,7 @@
 #pragma once
 
+#include <wfrest/HttpServer.h>
+
 #include "config/Config.h"
 #include "database/MySqlClient.h"
 #include "http/AuthHandler.h"
@@ -14,8 +16,6 @@
 #include "service/FileService.h"
 #include "service/UserService.h"
 #include "storage/LocalFileStorage.h"
-
-#include <wfrest/HttpServer.h>
 
 namespace webdisk {
 namespace app {
