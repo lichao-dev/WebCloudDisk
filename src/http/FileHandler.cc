@@ -28,9 +28,8 @@ common::Result<uint64_t> parse_file_id(const std::string& value) {
 } // namespace
 
 FileHandler::FileHandler(const AuthMiddleware& auth, const service::FileService& service)
-    : auth_{auth}
-    , service_{service} {
-}
+    : auth_{auth},
+      service_{service} {}
 
 void FileHandler::list(const wfrest::HttpReq* request, wfrest::HttpResp* response) const {
     auto context = auth_.authenticate(request);

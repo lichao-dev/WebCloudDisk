@@ -6,8 +6,7 @@ namespace webdisk {
 namespace http {
 
 AuthMiddleware::AuthMiddleware(const security::JwtService& jwt_service)
-    : jwt_service_{jwt_service} {
-}
+    : jwt_service_{jwt_service} {}
 
 common::Result<model::AuthContext> AuthMiddleware::authenticate(const wfrest::HttpReq* request) const {
     const std::string authorization = request->header("Authorization");

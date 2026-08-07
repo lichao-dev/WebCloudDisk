@@ -7,21 +7,20 @@ namespace webdisk {
 namespace app {
 
 Application::Application(config::Config config)
-    : config_{std::move(config)}
-    , database_{config_.database}
-    , users_{database_}
-    , files_{database_}
-    , password_hasher_{config_.auth.password_iterations}
-    , jwt_service_{config_.auth.jwt_secret, config_.auth.jwt_issuer, config_.auth.token_ttl}
-    , storage_{config_.storage.root}
-    , auth_service_{users_, password_hasher_, jwt_service_}
-    , user_service_{users_}
-    , file_service_{files_, storage_, config_.storage.max_file_size}
-    , auth_middleware_{jwt_service_}
-    , auth_handler_{auth_service_}
-    , user_handler_{auth_middleware_, user_service_}
-    , file_handler_{auth_middleware_, file_service_} {
-}
+    : config_{std::move(config)},
+      database_{config_.database},
+      users_{database_},
+      files_{database_},
+      password_hasher_{config_.auth.password_iterations},
+      jwt_service_{config_.auth.jwt_secret, config_.auth.jwt_issuer, config_.auth.token_ttl},
+      storage_{config_.storage.root},
+      auth_service_{users_, password_hasher_, jwt_service_},
+      user_service_{users_},
+      file_service_{files_, storage_, config_.storage.max_file_size},
+      auth_middleware_{jwt_service_},
+      auth_handler_{auth_service_},
+      user_handler_{auth_middleware_, user_service_},
+      file_handler_{auth_middleware_, file_service_} {}
 
 common::Result<void> Application::init() {
     auto storage_result = storage_.init();

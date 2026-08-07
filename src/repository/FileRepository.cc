@@ -44,8 +44,7 @@ model::FileInfo row_to_file(const std::vector<protocol::MySQLCell>& row) {
 } // namespace
 
 FileRepository::FileRepository(const db::MySqlClient& database)
-    : database_{database} {
-}
+    : database_{database} {}
 
 WFMySQLTask* FileRepository::list_by_user(uint64_t user_id, ListCallback callback) const {
     const std::string sql = "SELECT id, uid, filename, hashcode, size, created_at, updated_at FROM tbl_file "

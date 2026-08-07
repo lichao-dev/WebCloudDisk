@@ -9,10 +9,9 @@ namespace service {
 
 AuthService::AuthService(const repository::UserRepository& users, const security::PasswordHasher& password_hasher,
                          const security::JwtService& jwt_service)
-    : users_{users}
-    , password_hasher_{password_hasher}
-    , jwt_service_{jwt_service} {
-}
+    : users_{users},
+      password_hasher_{password_hasher},
+      jwt_service_{jwt_service} {}
 
 void AuthService::register_user(const std::string& username, const std::string& password, const std::string& confirm,
                                 wfrest::HttpResp* response, RegisterCallback callback) const {

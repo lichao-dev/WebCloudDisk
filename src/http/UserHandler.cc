@@ -8,9 +8,8 @@ namespace webdisk {
 namespace http {
 
 UserHandler::UserHandler(const AuthMiddleware& auth, const service::UserService& service)
-    : auth_{auth}
-    , service_{service} {
-}
+    : auth_{auth},
+      service_{service} {}
 
 void UserHandler::current_user(const wfrest::HttpReq* request, wfrest::HttpResp* response) const {
     auto context = auth_.authenticate(request);

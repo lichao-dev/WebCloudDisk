@@ -34,8 +34,7 @@ std::string string_field(const nlohmann::json& body, const char* field) {
 } // namespace
 
 AuthHandler::AuthHandler(const service::AuthService& service)
-    : service_{service} {
-}
+    : service_{service} {}
 
 void AuthHandler::register_user(const wfrest::HttpReq* request, wfrest::HttpResp* response) const {
     auto body = parse_json_object(request);

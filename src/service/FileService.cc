@@ -9,10 +9,9 @@ namespace webdisk {
 namespace service {
 
 FileService::FileService(const repository::FileRepository& files, storage::FileStorage& storage, uint64_t max_file_size)
-    : files_{files}
-    , storage_{storage}
-    , max_file_size_{max_file_size} {
-}
+    : files_{files},
+      storage_{storage},
+      max_file_size_{max_file_size} {}
 
 common::Result<std::string> FileService::sanitize_filename(const std::string& filename) {
     // 查找文件名中最后一个 / 或 \，只保留最后的基础文件名，同时兼容 Linux/macOS 路径 和 Windows 路径

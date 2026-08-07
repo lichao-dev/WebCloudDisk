@@ -23,8 +23,8 @@ public:
 
     WFMySQLTask* list_by_user(uint64_t user_id, ListCallback callback) const;
     WFMySQLTask* find_owned(uint64_t user_id, uint64_t file_id, FindCallback callback) const;
-    WFMySQLTask* create(uint64_t user_id, const std::string& filename, const std::string& hashcode,
-                        uint64_t size, CreateCallback callback) const;
+    WFMySQLTask* create(uint64_t user_id, const std::string& filename, const std::string& hashcode, uint64_t size,
+                        CreateCallback callback) const;
 
 private:
     const db::MySqlClient& database_;

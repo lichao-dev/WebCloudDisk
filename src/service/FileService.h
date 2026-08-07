@@ -37,8 +37,7 @@ public:
     void list(uint64_t user_id, wfrest::HttpResp* response, ListCallback callback) const;
     void upload(uint64_t user_id, const std::string& untrusted_filename, const std::string& content,
                 wfrest::HttpResp* response, UploadCallback callback) const;
-    void find_download(uint64_t user_id, uint64_t file_id, wfrest::HttpResp* response,
-                       DownloadCallback callback) const;
+    void find_download(uint64_t user_id, uint64_t file_id, wfrest::HttpResp* response, DownloadCallback callback) const;
 
 private:
     // 把文件名清理成安全、合法、适合存储或使用的形式

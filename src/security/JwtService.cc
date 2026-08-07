@@ -11,10 +11,9 @@ namespace webdisk {
 namespace security {
 
 JwtService::JwtService(std::string secret, std::string issuer, std::chrono::seconds token_ttl)
-    : secret_{std::move(secret)}
-    , issuer_{std::move(issuer)}
-    , token_ttl_{token_ttl} {
-}
+    : secret_{std::move(secret)},
+      issuer_{std::move(issuer)},
+      token_ttl_{token_ttl} {}
 
 common::Result<std::string> JwtService::generate(uint64_t user_id) const {
     try {

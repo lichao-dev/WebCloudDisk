@@ -92,8 +92,7 @@ std::vector<std::string> split_hash(const std::string& encoded) {
 } // namespace
 
 PasswordHasher::PasswordHasher(int iterations)
-    : iterations_{iterations} {
-}
+    : iterations_{iterations} {}
 
 common::Result<std::string> PasswordHasher::hash(const std::string& password) const {
     std::array<unsigned char, SALT_SIZE> salt{};

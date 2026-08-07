@@ -6,8 +6,7 @@ namespace webdisk {
 namespace service {
 
 UserService::UserService(const repository::UserRepository& users)
-    : users_{users} {
-}
+    : users_{users} {}
 
 void UserService::get_current_user(uint64_t user_id, wfrest::HttpResp* response, Callback callback) const {
     WFMySQLTask* task =

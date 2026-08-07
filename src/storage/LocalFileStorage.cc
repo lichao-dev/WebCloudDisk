@@ -15,9 +15,8 @@ namespace webdisk {
 namespace storage {
 
 LocalFileStorage::LocalFileStorage(std::filesystem::path root)
-    : root_{std::move(root)}
-    , temporary_root_{root_ / ".tmp"} {
-}
+    : root_{std::move(root)},
+      temporary_root_{root_ / ".tmp"} {}
 
 common::Result<void> LocalFileStorage::init() {
     std::error_code error;

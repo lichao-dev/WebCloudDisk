@@ -63,8 +63,7 @@ common::Result<std::optional<model::User>> read_one_user(WFMySQLTask* task, cons
 } // namespace
 
 UserRepository::UserRepository(const db::MySqlClient& database)
-    : database_{database} {
-}
+    : database_{database} {}
 
 WFMySQLTask* UserRepository::find_by_username(const std::string& username, FindCallback callback) const {
     const std::string sql = "SELECT id, username, password_hash, created_at, updated_at FROM tbl_user "
