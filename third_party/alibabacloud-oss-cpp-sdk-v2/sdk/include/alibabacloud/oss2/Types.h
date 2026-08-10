@@ -1,0 +1,264 @@
+
+#pragma once
+
+#include "alibabacloud/oss2/OSS_EXPORTS.h"
+#include <chrono>
+#include <cstdint>
+#include <functional>
+#include <map>
+#include <memory>
+#include <string>
+#include <variant>
+#include <vector>
+
+
+namespace alibabacloud {
+namespace oss2 {
+
+class ByteWriter;
+
+enum class AddressStyleType { VirtualHosted, Path, CName };
+
+enum class LogLevel {
+    LogOff = 0,
+    LogFatal,
+    LogError,
+    LogWarn,
+    LogInfo,
+    LogDebug,
+    LogTrace,
+    LogAll,
+};
+
+enum class FeatureFlagsType {
+    /**
+     * If the client time is different from server time by more than about 15 minutes,
+     * the requests your application makes will be signed with the incorrect time, and the server will reject them.
+     * The feature to help to identify this case, and SDK will correct for clock skew.
+     */
+    CorrectClockSkew = (1 << 0),
+
+    /**
+     * Content-Type is automatically added based on the object name if not specified.
+     * This feature takes effect for PutObject, AppendObject and InitiateMultipartUpload
+     */
+    AutoDetectMimeType = (1 << 1),
+
+    /**
+     * Check data integrity of uploads via the crc64.
+     * This feature takes effect for PutObject, AppendObject, UploadPart, Uploader.UploadFrom and
+     * Uploader.UploadFile
+     */
+    EnableCRC64CheckUpload = (1 << 2),
+
+    /**
+     * Check data integrity of downloads via the crc64.
+     * This feature takes effect for GetObjectToFile and Downloader.DownloadFile
+     */
+    EnableCRC64CheckDownload = (1 << 3),
+};
+
+// clang-format off
+struct ALIBABACLOUD_OSS_API caseSensitiveLess {
+    bool operator()(const std::string& lhs, const std::string& rhs) const {
+        return lhs < rhs;
+    }
+};
+
+struct ALIBABACLOUD_OSS_API caseInsensitiveLess {
+    bool operator()(const std::string& lhs, const std::string& rhs) const {
+        auto first1 = lhs.begin(), last1 = lhs.end();
+        auto first2 = rhs.begin(), last2 = rhs.end();
+        while (first1 != last1) {
+            if (first2 == last2) {
+                return false;
+            }
+            auto first1_ch = ::tolower(*first1);
+            auto first2_ch = ::tolower(*first2);
+            if (first1_ch != first2_ch) {
+                return (first1_ch < first2_ch);
+            }
+            ++first1;
+            ++first2;
+        }
+        return (first2 != last2);
+    }
+};
+// clang-format on
+
+struct ALIBABACLOUD_OSS_API ProgressCallback {
+    void operator()(std::size_t increment, std::size_t transferred, std::int64_t total) const {
+        if (callback) {
+            callback(increment, transferred, total, userdata);
+        }
+    }
+    std::function<void(std::size_t increment, std::size_t transferred, std::int64_t total, std::uintptr_t userdata)>
+        callback;
+    std::uintptr_t userdata{};
+};
+
+typedef void (*LogCallback)(LogLevel level, const std::string& stream);
+using AttributeValue = std::variant<bool, std::vector<std::string>, std::int64_t>;
+using AttributeMap = std::map<std::string, AttributeValue>;
+using MetaData = std::map<std::string, std::string, caseInsensitiveLess>;
+using HeaderCollection = std::map<std::string, std::string, caseInsensitiveLess>;
+using ParameterCollection = std::map<std::string, std::string, caseSensitiveLess>;
+
+/// Factory that creates a ByteWriter sink for receiving response body data.
+/// The supplier is invoked once per HTTP response with the content length
+/// (or -1 if unknown) and the response headers, allowing the caller to
+/// choose the sink based on Content-Type, Content-Disposition, etc.
+/// If isOneShot is true, the request will not be retried on transport error
+/// because the sink cannot be reset.
+struct ALIBABACLOUD_OSS_API SinkFactory {
+    std::shared_ptr<ByteWriter> operator()(std::int64_t size, const HeaderCollection& headers) const {
+        return supplier ? supplier(size, headers) : nullptr;
+    }
+    std::function<std::shared_ptr<ByteWriter>(std::int64_t size, const HeaderCollection& headers)> supplier;
+    bool isOneShot{};
+};
+
+/// Convenience helper to create a SinkFactory from a simple supplier that
+/// only needs the content length and does not inspect response headers.
+inline SinkFactory makeSinkFactory(std::function<std::shared_ptr<ByteWriter>(std::int64_t)> fn,
+                                   bool isOneShot = false) {
+    return SinkFactory{[fn = std::move(fn)](std::int64_t size, const HeaderCollection&) { return fn(size); },
+                       isOneShot};
+}
+
+
+/**
+ * @brief Base class for all strongly-typed OSS API request objects.
+ *
+ * Every concrete request class (e.g., PutObjectRequest, GetObjectRequest)
+ * inherits from RequestModel. It provides a common container for custom
+ * HTTP headers and URL query parameters that the user may attach to any
+ * request.
+ *
+ * During serialization, the transform::from*() functions read these
+ * collections and merge them into the OperationInput that is sent over
+ * the wire. User-supplied headers / parameters take precedence over
+ * values generated by the SDK.
+ *
+ * @code
+ *   PutObjectRequest request;
+ *   request.setBucket("my-bucket");
+ *   request.setKey("my-key");
+ *   // Attach a custom header
+ *   request.addHeader("x-oss-storage-class", "IA");
+ *   // Attach a custom query parameter
+ *   request.addParameter("versionId", "CAEQHh...");
+ * @endcode
+ */
+class ALIBABACLOUD_OSS_API RequestModel {
+  public:
+    RequestModel() = default;
+
+    /// Constructs a request with pre-populated headers and parameters.
+    RequestModel(HeaderCollection headers, ParameterCollection parameters)
+        : headers_(std::move(headers)), parameters_(std::move(parameters)) {}
+
+    virtual ~RequestModel() = default;
+
+    /// Returns all custom HTTP headers attached to this request.
+    inline const HeaderCollection& getHeaders() const {
+        return headers_;
+    }
+
+    /// Returns all custom URL query parameters attached to this request.
+    inline const ParameterCollection& getParameters() const {
+        return parameters_;
+    }
+
+    /// Adds or overwrites a custom HTTP header on this request.
+    inline void addHeader(const std::string& key, const std::string& value) {
+        headers_.insert_or_assign(key, value);
+    }
+
+    /// Adds or overwrites a custom URL query parameter on this request.
+    inline void addParameter(const std::string& key, const std::string& value) {
+        parameters_.insert_or_assign(key, value);
+    }
+
+  protected:
+    /// @name Header / parameter lookup helpers for subclasses
+    /// @{
+    const std::string& getHeaderOrEmpty(const std::string& key) const;
+    const std::string& getParameterOrEmpty(const std::string& key) const;
+
+    std::int32_t getHeaderAsInt32Or(const std::string& key, std::int32_t value = -1) const;
+    std::int64_t getHeaderAsInt64Or(const std::string& key, std::int64_t value = -1LL) const;
+    bool getHeaderAsBoolOr(const std::string& key, bool value = false) const;
+
+    std::int32_t getParameterAsInt32Or(const std::string& key, std::int32_t value = -1) const;
+    std::int64_t getParameterAsInt64Or(const std::string& key, std::int64_t value = -1LL) const;
+    bool getParameterAsBoolOr(const std::string& key, bool value = false) const;
+    /// @}
+
+    HeaderCollection headers_;       ///< Custom HTTP headers.
+    ParameterCollection parameters_; ///< Custom URL query parameters.
+};
+
+/**
+ * @brief Base class for all strongly-typed OSS API result objects.
+ *
+ * Every concrete result class (e.g., PutObjectResult, GetObjectResult)
+ * inherits from ResultModel. It captures the HTTP status code and
+ * response headers returned by the OSS server.
+ *
+ * During deserialization, the transform::to*() functions construct a
+ * concrete result from an OperationOutput by extracting the status code,
+ * headers, and (optionally) parsing the XML response body.
+ *
+ * @code
+ *   auto outcome = client.putObject(request);
+ *   if (outcome.isSuccess()) {
+ *       auto& result = outcome.result();
+ *       std::cout << "Status: " << result.getStatusCode()
+ *                 << ", RequestId: " << result.getRequestId()
+ *                 << std::endl;
+ *   }
+ * @endcode
+ */
+class ALIBABACLOUD_OSS_API ResultModel {
+  public:
+    ResultModel() = default;
+    ResultModel(const ResultModel&) = default;
+    ResultModel& operator=(const ResultModel&) = default;
+    ResultModel(ResultModel&&) noexcept = default;
+    ResultModel& operator=(ResultModel&&) noexcept = default;
+
+    /// Constructs a result from an HTTP status code and response headers.
+    ResultModel(int statusCode, HeaderCollection headers)
+        : status_(""), statusCode_(statusCode), headers_(std::move(headers)) {}
+    virtual ~ResultModel() = default;
+
+    /// Returns all HTTP response headers from the OSS server.
+    inline const HeaderCollection& getHeaders() const {
+        return headers_;
+    }
+
+    /// Returns the HTTP status code (e.g., 200, 204).
+    inline int getStatusCode() const {
+        return statusCode_;
+    }
+
+    /// Returns the server-assigned request ID for troubleshooting.
+    /// Reads the @c x-oss-request-id response header.
+    inline const std::string& getRequestId() const {
+        return getHeaderOrEmpty("x-oss-request-id");
+    }
+
+  protected:
+    std::string status_;       ///< Reserved status string.
+    int statusCode_{};         ///< HTTP status code.
+    HeaderCollection headers_; ///< HTTP response headers.
+
+    /// @name Header lookup helpers for subclasses
+    /// @{
+    const std::string& getHeaderOrEmpty(const std::string& key) const;
+    std::int64_t getHeaderAsInt64Or(const std::string& key, std::int64_t value = -1LL) const;
+    /// @}
+};
+} // namespace oss2
+} // namespace alibabacloud

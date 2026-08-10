@@ -1,0 +1,23 @@
+
+#include "alibabacloud/oss2/transport/HttpTransport.h"
+#include "alibabacloud/oss2/Error.h"
+
+#include <memory>
+#include <string>
+
+namespace alibabacloud {
+namespace oss2 {
+
+ResponseResult NopHttpTransport::send(std::unique_ptr<RequestMessage>&, const RequestOptions&) {
+    return TransportError{make_error_code(TransportErrorCode::NotSupported), "", ""};
+}
+
+void NopAsyncHttpTransport::sendAsync(std::unique_ptr<RequestMessage> request, const RequestOptions&,
+                                      RequestCallback callback) {
+    if (callback) {
+        callback(TransportError{make_error_code(TransportErrorCode::NotSupported), "", ""}, std::move(request));
+    }
+}
+
+} // namespace oss2
+} // namespace alibabacloud

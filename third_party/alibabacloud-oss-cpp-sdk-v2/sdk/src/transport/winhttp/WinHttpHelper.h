@@ -1,0 +1,88 @@
+#pragma once
+
+#include "alibabacloud/oss2/Error.h"
+#include "alibabacloud/oss2/io/ByteWriter.h"
+#include "alibabacloud/oss2/transport/HttpTransport.h"
+#include "alibabacloud/oss2/transport/HttpTypes.h"
+#include "alibabacloud/oss2/transport/winhttp/WinHttpTransportOptions.h"
+
+// clang-format off
+#include <windows.h>
+#include <winhttp.h>
+// clang-format on
+
+#include <cstdint>
+#include <map>
+#include <memory>
+#include <optional>
+#include <sstream>
+#include <string>
+
+namespace alibabacloud::oss2::transport::winhttp {
+
+struct WinHttpHandleDeleter {
+    void operator()(void* handle) const {
+        WinHttpCloseHandle(static_cast<HINTERNET>(handle));
+    }
+};
+using WinHttpHandle = std::unique_ptr<void, WinHttpHandleDeleter>;
+
+std::wstring toWideString(const std::string& str);
+std::string fromWideString(const std::wstring& wstr);
+
+std::string formatWinHttpError(DWORD winError);
+TransportError makeWinHttpError(TransportErrorCode code, DWORD winError);
+
+struct ConnectionOptions {
+    bool verifySSL{true};
+    bool enabledRedirect{false};
+    std::string proxyHost;
+    unsigned int proxyPort{};
+    std::string proxyUserName;
+    std::string proxyPassword;
+    bool collectMetrics{false};
+};
+
+ConnectionOptions buildConnectionOptions(const HttpTransportOptions& options);
+ConnectionOptions buildConnectionOptions(const WinHttpTransportOptions& options);
+
+using HeaderMap = std::map<std::string, std::string>;
+HeaderMap parseResponseHeaders(const std::string& rawHeaders);
+
+// --- Shared helpers for sync/async clients ---
+
+WinHttpHandle openSession(const ConnectionOptions& connOpts, unsigned int maxConnsPerServer, long connectTimeout,
+                          long requestTimeout);
+
+struct RequestHandles {
+    WinHttpHandle hConnect;
+    WinHttpHandle hRequest;
+};
+
+std::optional<TransportError> openRequest(HINTERNET hSession, const std::string& uri, const std::string& method,
+                                          RequestHandles& out);
+
+void applyRequestOptions(HINTERNET hRequest, const ConnectionOptions& connOpts);
+
+int64_t resolveContentLength(const HeaderCollection& headers, const std::shared_ptr<ByteContent>& body);
+
+void addRequestHeaders(HINTERNET hRequest, const HeaderCollection& headers);
+
+void readResponseStatusAndHeaders(HINTERNET hRequest, ResponseMessage& response);
+
+struct ResponseSink {
+    std::shared_ptr<ByteWriter> sink;
+    std::shared_ptr<std::stringstream> defaultSink;
+};
+
+ResponseSink createResponseSink(long statusCode, const std::optional<SinkFactory>& factory,
+                                const HeaderCollection& headers);
+
+void finalizeResponseBody(ResponseMessage& response, long statusCode, const std::optional<SinkFactory>& factory,
+                          const std::shared_ptr<std::stringstream>& defaultSink);
+
+std::unique_ptr<HttpMetrics> makeHttpMetrics(bool enabled);
+void beforeRequestMetrics(HttpMetrics* metrics);
+void afterRequestMetrics(HttpMetrics* metrics, HINTERNET hRequest);
+
+} // namespace alibabacloud::oss2::transport::winhttp

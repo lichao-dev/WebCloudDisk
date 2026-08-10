@@ -1,0 +1,91 @@
+name: Windows Transport CI
+
+on:
+  push:
+    branches: [main, 'dev-*']
+    paths:
+      - 'sdk/**'
+      - 'tests/**'
+      - 'CMakeLists.txt'
+      - 'cmake/**'
+      - '.github/workflows/windows-transport.yml'
+  pull_request:
+    branches: [main, 'dev-*']
+    paths:
+      - 'sdk/**'
+      - 'tests/**'
+      - 'CMakeLists.txt'
+      - 'cmake/**'
+      - '.github/workflows/windows-transport.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Transport (${{ matrix.transport }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - transport: none
+            curl: OFF
+            winhttp: OFF
+          - transport: curl-only
+            curl: ON
+            winhttp: OFF
+          - transport: winhttp-only
+            curl: OFF
+            winhttp: ON
+          - transport: both
+            curl: ON
+            winhttp: ON
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure CMake
+        shell: bash
+        run: |
+          cmake -B build \
+            -A x64 \
+            -DBUILD_TESTS=ON \
+            -DBUILD_SAMPLES=OFF \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DUSE_CURL_TRANSPORT=${{ matrix.curl }} \
+            -DUSE_WINHTTP_TRANSPORT=${{ matrix.winhttp }}
+
+      - name: Build
+        shell: bash
+        run: cmake --build build --config Release --target cpp-sdk-v2 cpp-sdk-unittest
+
+      - name: Test
+        working-directory: build
+        shell: bash
+        run: ctest -C Release -V --output-on-failure -R cpp-sdk-unittest
+
+      # Shared library build (compile-only, winhttp-only)
+      - name: Configure CMake (shared, winhttp)
+        if: matrix.transport == 'winhttp-only'
+        shell: bash
+        run: |
+          cmake -B build-shared \
+            -A x64 \
+            -DBUILD_TESTS=OFF \
+            -DBUILD_SAMPLES=OFF \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=ON \
+            -DUSE_CURL_TRANSPORT=OFF \
+            -DUSE_WINHTTP_TRANSPORT=ON
+
+      - name: Build (shared, winhttp)
+        if: matrix.transport == 'winhttp-only'
+        shell: bash
+        run: cmake --build build-shared --config Release

@@ -15,6 +15,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 # 查找系统依赖
 # =========================
 find_package(OpenSSL REQUIRED)
+find_package(CURL REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(Threads REQUIRED)
 
@@ -23,6 +24,19 @@ find_package(Threads REQUIRED)
 # 第三方库目录
 # =========================
 set(THIRD_PARTY_DIR "${CMAKE_SOURCE_DIR}/third_party")
+
+# OSS SDK 使用系统 curl 和 OpenSSL，避免配置阶段下载依赖。
+set(BUILD_TESTS OFF)
+set(BUILD_SAMPLES OFF)
+set(BUILD_PERF_TESTS OFF)
+set(USE_SYSTEM_CURL ON)
+set(USE_SYSTEM_OPENSSL ON)
+
+add_subdirectory(
+    "${THIRD_PARTY_DIR}/alibabacloud-oss-cpp-sdk-v2"
+    "${CMAKE_BINARY_DIR}/third_party/alibabacloud-oss-cpp-sdk-v2"
+    EXCLUDE_FROM_ALL
+)
 
 
 # =========================
@@ -113,6 +127,9 @@ target_compile_options(cloud_disk_core PRIVATE
 # 链接第三方库
 # =========================
 target_link_libraries(cloud_disk_core PUBLIC
+    # 阿里云 OSS C++ SDK V2
+    alibabacloud_oss_v2::oss
+
     # wfrest HTTP 框架
     "${THIRD_PARTY_DIR}/wfrest/_lib/libwfrest.a"
 
