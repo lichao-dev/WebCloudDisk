@@ -161,6 +161,10 @@ target_link_libraries(cloud_disk_server PRIVATE
     cloud_disk_core
 )
 
+install(TARGETS cloud_disk_server
+    RUNTIME DESTINATION bin
+)
+
 
 # =========================
 # 单元测试

@@ -40,6 +40,13 @@ public:
         uint64_t max_file_size{100ULL * 1024ULL * 1024ULL}; // 单个文件最大上传大小
     };
 
+    struct Oss {
+        bool enabled{false}; // 是否同步备份本地文件到 OSS
+        std::string region;
+        std::string bucket;
+        std::string key_prefix{"backup/sha256/"}; // OSS 对象名前缀
+    };
+
     struct Log {
         std::string level{"info"};
         bool console{true};
@@ -56,6 +63,7 @@ public:
     Database database;
     Auth auth;
     Storage storage;
+    Oss oss;
     Log log;
 };
 

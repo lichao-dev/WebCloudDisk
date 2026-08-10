@@ -34,6 +34,8 @@ void test_config(const std::filesystem::path& root) {
               "[auth]\njwt_secret=01234567890123456789012345678901\n"
               "jwt_issuer=test\ntoken_ttl_seconds=3600\npassword_iterations=600000\n"
               "[storage]\nroot=./test-upload\nmax_file_size_bytes=1024\n"
+              "[oss]\nenabled=true\nregion=cn-hangzhou\nbucket=test-backup-bucket\n"
+              "key_prefix=test/backup\n"
               "[log]\nlevel=info\nconsole=false\nfile=./test-log/server.log\n"
               "roll_size=2048\nroll_files=3\n";
     output.close();
@@ -44,10 +46,33 @@ void test_config(const std::filesystem::path& root) {
     const auto working_dir = std::filesystem::current_path();
     assert(config.value().server.web_root == (working_dir / "test-www").lexically_normal());
     assert(config.value().storage.root == (working_dir / "test-upload").lexically_normal());
+    assert(config.value().oss.enabled);
+    assert(config.value().oss.region == "cn-hangzhou");
+    assert(config.value().oss.bucket == "test-backup-bucket");
+    assert(config.value().oss.key_prefix == "test/backup/");
     assert(!config.value().log.console);
     assert(config.value().log.file == (working_dir / "test-log" / "server.log").lexically_normal());
     assert(config.value().log.roll_size == 2048);
     assert(config.value().log.roll_files == 3);
+
+    std::ofstream invalid_output(path);
+    invalid_output << "[database]\nhost=127.0.0.1\nusername=test\ndatabase=CloudDisk\n"
+                      "[auth]\njwt_secret=01234567890123456789012345678901\n"
+                      "[oss]\nenabled=true\nregion=\nbucket=test-backup-bucket\n";
+    invalid_output.close();
+
+    auto invalid_config = webdisk::config::Config::load(path);
+    assert(!invalid_config);
+    assert(invalid_config.error().message.find("oss.region") != std::string::npos);
+
+    std::ofstream local_only_output(path);
+    local_only_output << "[database]\nhost=127.0.0.1\nusername=test\ndatabase=CloudDisk\n"
+                         "[auth]\njwt_secret=01234567890123456789012345678901\n";
+    local_only_output.close();
+
+    auto local_only_config = webdisk::config::Config::load(path);
+    assert(local_only_config);
+    assert(!local_only_config.value().oss.enabled);
 }
 
 void test_password_hashing() {
@@ -106,6 +131,9 @@ void test_logging(const std::filesystem::path& root) {
     app_config.database.username = "private-db-user";
     app_config.database.password = "private-db-password";
     app_config.auth.jwt_secret = "private-jwt-secret";
+    app_config.oss.enabled = true;
+    app_config.oss.region = "cn-hangzhou";
+    app_config.oss.bucket = "test-backup-bucket";
     const std::string config_text = app_config.to_string();
     LOG_INFO("Configuration: {}", config_text);
     webdisk::log::Log::shutdown();
@@ -118,6 +146,8 @@ void test_logging(const std::filesystem::path& root) {
     assert(content.find("username_configured=true") != std::string::npos);
     assert(content.find("password_configured=true") != std::string::npos);
     assert(content.find("jwt_secret_configured=true") != std::string::npos);
+    assert(content.find("oss{enabled=true") != std::string::npos);
+    assert(content.find("credentials_provider=environment") != std::string::npos);
     assert(content.find("private-db-user") == std::string::npos);
     assert(content.find("private-db-password") == std::string::npos);
     assert(content.find("private-jwt-secret") == std::string::npos);

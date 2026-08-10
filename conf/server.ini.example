@@ -43,6 +43,17 @@ root=./upload
 ; 104857600 = 100MB
 max_file_size_bytes=104857600
 
+[oss]
+; 本地文件始终是主存储；实际备份逻辑接入后再将此项设为 true
+enabled=false
+; Bucket 所在地域，例如 cn-hangzhou
+region=change_me
+bucket=change_me
+; 最终 ObjectKey 为该前缀加文件 SHA-256
+key_prefix=backup/sha256/
+; OSS 凭据不写入本文件，通过 OSS_ACCESS_KEY_ID、OSS_ACCESS_KEY_SECRET
+; 以及可选的 OSS_SESSION_TOKEN 环境变量提供
+
 [log]
 ; 日志级别
 ; 可选值通常包括 trace/debug/info/warn/error

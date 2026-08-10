@@ -104,14 +104,20 @@ cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 
-服务程序生成在 `build/bin/cloud_disk_server`。如果项目目录发生移动，建议删除旧构建目录后重新执行 CMake 配置，避免缓存仍然引用旧路径。
+服务程序生成在 `build/bin/cloud_disk_server`。如需将编译好的服务程序复制到项目根目录的 `bin/`，执行：
+
+```bash
+cmake --install build --prefix "$PWD"
+```
+
+安装后的程序位于 `bin/cloud_disk_server`；测试程序仍只保留在 `build/bin/`。项目根目录的 `bin/` 已被 Git 忽略。如果项目目录发生移动，建议删除旧构建目录后重新执行 CMake 配置，避免缓存仍然引用旧路径。
 
 ## 启动和停止
 
 启动命令必须完整指定配置文件：
 
 ```bash
-./build/bin/cloud_disk_server --config conf/server.ini
+./bin/cloud_disk_server --config conf/server.ini
 ```
 
 默认监听端口为 `9527`。服务启动后可通过 `Ctrl+C` 触发正常停止。

@@ -1,5 +1,6 @@
 #include "log/Log.h"
 
+#include <chrono>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -74,10 +75,11 @@ common::Result<void> Log::init(const config::Config::Log& config) {
         auto logger = std::make_shared<spdlog::logger>("webdisk", sinks.begin(), sinks.end());
         logger->set_level(*level);
         logger->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%l] [thread %t] [%s:%#] %v");
-        // 错误日志立即刷盘，普通日志仍由 spdlog 缓冲，兼顾故障信息完整性与性能。
+        // 错误日志立即刷新，普通日志定期刷新，兼顾可观测性与文件 I/O 开销。
         logger->flush_on(spdlog::level::err);
 
         spdlog::set_default_logger(std::move(logger));
+        spdlog::flush_every(std::chrono::seconds{3});
         LOG_INFO("Logging initialized");
 
         return common::Result<void>::success();

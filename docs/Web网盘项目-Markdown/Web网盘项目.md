@@ -773,13 +773,9 @@ docker run -d --name app1 --network mynetwork nginx
 
 # 3 第二期：阿里云对象存储OSS
 
-在企业开发中，容灾4 备份5 是至关重要的。因此，我们需要一套成熟的方案来解决这个问题。遗憾的是，企业自建解决
+在企业开发中，容灾备份是至关重要的。因此，我们需要一套成熟的方案来解决这个问题。遗憾的是，企业自建解决方案，基本上不可能的。原因有两个：1) 成本太高；2) 无论是数据同步还是错误恢复，实现难度都非常大。
 
-方案，基本上不可能的。原因有两个：1) 成本太高；2) 无论是数据同步还是错误恢复，实现难度都非常大。
-
-这种情况下，企业往往会使用现有的成熟的云存储方案。使用云存储方案之后，数据丢失的问题基本上就不会发生了，而
-
-且也减少了开发和运维的工作量。在我们这个项目中，我们使用的云产品是阿里云对象存储OSS。
+这种情况下，企业往往会使用现有的成熟的云存储方案。使用云存储方案之后，数据丢失的问题基本上就不会发生了，而且也减少了开发和运维的工作量。在我们这个项目中，我们使用的云产品是阿里云对象存储OSS。
 
 ## 3.1 快速了解OSS
 
@@ -791,24 +787,11 @@ docker run -d --name app1 --network mynetwork nginx
 
 - 存储空间（Bucket）
 
-存储空间是用户用于存储对象（Object）的容器，所有的对象都必须隶属于某个存储空间。存储空间具有各种配置
-
-属性，包括地域、访问权限、存储类型等。用户可以根据实际需求，创建不同类型的存储空间来存储不同的数据。
-
-```bash
-4容灾：容灾的目的是当主系统所在地发生大范围灾难时（比如地震等），能够快速在另一个地方把整个业务系统重新搭建起来。
-5备份：简单来说，就是为数据创建一个独立的、可恢复的副本。
-```
+存储空间是用户用于存储对象（Object）的容器，所有的对象都必须隶属于某个存储空间。存储空间具有各种配置属性，包括地域、访问权限、存储类型等。用户可以根据实际需求，创建不同类型的存储空间来存储不同的数据。
 
 - 对象（Object）
 
-对象是OSS 存储数据的基本单元，也被称为OSS 的文件。和传统的文件系统不同，对象没有文件目录层级结构的
-
-关系。对象由元数据（Object Meta）、用户数据（Data）和文件名（Key）组成，并且由存储空间内部唯一的Key
-
-来标识。对象元数据是一组键值对，表示了对象的一些属性，例如文件类型、编码方式等信息，同时用户也可以在
-
-元数据中存储一些自定义的信息。
+对象是OSS 存储数据的基本单元，也被称为OSS 的文件。和传统的文件系统不同，对象没有文件目录层级结构的关系。对象由元数据（Object Meta）、用户数据（Data）和文件名（Key）组成，并且由存储空间内部唯一的Key来标识。对象元数据是一组键值对，表示了对象的一些属性，例如文件类型、编码方式等信息，同时用户也可以在元数据中存储一些自定义的信息。
 
 - 对象名（ObjectKey）
 
@@ -1044,3 +1027,297 @@ return 0;
 ```bash
 InitializeSdk()；SDK 使用完毕之后（后续不再使用），执行ShutdownSdk()。
 ```
+
+---
+
+# 4 第三期：消息队列RabbitMQ
+
+同步备份文件会导致响应时间变长，影响用户体验。我们可以改用消息队列实现异步备份，从而提升系统响应速度。
+
+## 4.1 引入消息队列带来的好处
+
+1. 异步解耦，提升响应速度
+
+这是我们引入消息队列的核心原因。生产者（我们的应用程序）只需把备份任务作为“消息”丢进队列，立刻就能
+
+返回，无需等待耗时的备份操作完成。用户体验得到直接改善。
+
+2. 削峰填谷，增强系统稳定性
+
+在业务高峰期（如大促期间），瞬间的请求量可能压垮后端。消息队列能像大坝一样，把突发的流量先蓄起来（削
+
+峰），然后让后端服务按照自己能处理的速度去消费（填谷），避免后端被冲垮。
+
+3. 故障隔离，提高系统可用性
+
+当备份服务（消费者）临时宕机或网络抖动时，消息会安全地存储在队列中。待服务恢复后，它可以继续从断点处
+
+处理消息。生产者的核心业务不受影响，两者故障互相隔离。
+
+4. 支持最终一致性
+
+对于备份这类对实时一致性要求不高的场景（不需要备份立即完成），消息队列能很好地保证“最终一致性”——即
+
+只要没有意外，消息最终一定会被处理，备份最终一定会完成。
+
+5. 弹性扩展
+
+如果备份任务增多，可以方便地增加“消费者”（即更多的备份服务器）来处理队列中的消息，实现水平扩展。
+
+## 4.2 RabbitMQ 简介
+
+RabbitMQ 是一个广泛使用的开源消息队列中间件，它实现了AMQP（高级消息队列协议），基于Erlang 语言6 开发，具
+
+备高可靠性、灵活的路由能力以及易于使用的管理界面。
+
+它的核心设计理念是：生产者从不直接发送消息到队列，而是发送给“交换机”，由交换机根据提前配置好的路由规则，
+
+将消息分发到不同的队列中。
+
+```bash
+6Erlang：是一门专为高并发、高容错、分布式系统而生的函数式编程语言，由爱立信（Ericsson）公司于1986 年设计。
+```
+
+![学习新技术的流程示意图 1](/Users/lichao/Downloads/Web网盘项目.assets/learning-process-1.png)
+
+![学习新技术的流程示意图 2](/Users/lichao/Downloads/Web网盘项目.assets/learning-process-2.png)
+
+## 4.3 使用Docker 安装RabbitMQ
+
+```bash
+# 拉取带管理插件的RabbitMQ 镜像，包含Web 可视化管理界面
+docker pull rabbitmq:management
+docker run -d \
+# 后台运行容器（守护模式）
+--hostname rabbitsrv \
+# 设置容器内部主机名
+--name rabbit \
+# 容器名称
+-p 5672:5672 \
+# AMQP 协议端口（应用程序连接RabbitMQ 使用）
+-p 15672:15672 \
+# 管理界面端口（浏览器访问http://localhost:15672）
+-p 25672:25672 \
+# 集群通信端口
+-v /data/rabbitmq:/var/lib/rabbitmq \
+# 挂载数据目录（持久化消息队列数据）
+rabbitmq:management
+# 使用带管理插件的RabbitMQ 镜像
+```
+
+## 4.4 RabbitMQ 的架构和核心概念
+
+这一小节，我们讲解RabbitMQ 的架构和它的一些核心概念，这些是了解和使用RabbitMQ 的前提。
+
+RabbitMQ 的架构图如下所示：
+
+RabbitMQ 的核心概念：
+
+1. 生产者（Producer）— 发送消息的应用程序。
+
+生产者创建消息并将消息发送到交换机，生产者可以指定消息的路由键（Routing Key），交换机会根据路由键判断
+
+消息应路由到哪个队列。
+
+2. 消费者（Consumer）— 接收和处理消息的应用程序。
+
+消费者从队列中接收消息，处理业务逻辑。消费者有两种消费模式：
+
+- 拉取模式（Pull）：消费者主动从队列拉取消息。
+
+- 推送模式（Push）：RabbitMQ 主动推送消息给消费者。
+
+3. 队列（Queue）— 存储消息的容器，本质上是一个命名缓冲区。
+
+4. 交换机（Exchange）— 接收生产者发送的消息，并根据路由规则将消息路由到一个或多个队列。
+
+RabbitMQ 有四种类型的交换机：
+
+![RabbitMQ 架构图](/Users/lichao/Downloads/Web网盘项目.assets/rabbitmq-architecture.png)
+
+类型 路由规则 作用
+
+直连（Direct） 消息的routingKey 必须与
+
+单播
+
+队列绑定的bindingKey 完全匹配。
+
+扇形（Fanout） 忽略routingKey，广播给所有绑定的队列。 广播
+
+```bash
+routingKey 支持通配符匹配：
+*匹配一个字段，
+```
+
+主题（Topic）
+
+根据多个条件路由
+
+```bash
+#: 匹配任意多个字段（包括0 个），
+```
+
+字段之间以. 分隔。
+
+标头（Headers） 根据消息的头属性匹配，忽略routingKey。 用于路由规则非常复杂的情况
+
+5. 绑定（Binding）— 连接交换机和队列的规则，定义了消息从交换机路由到队列的条件。
+
+6. 路由键（Routing Key）— 生产者在发送消息时指定的一个标签，用于交换机判断消息应路由到哪个队列。
+
+7. 虚拟主机（Virtual Host，vhost）— RabbitMQ 中的隔离环境，类似于MySQL 的数据库。
+
+虚拟主机的目的是实现多租户隔离，不同虚拟主机的交换机、队列、绑定是完全隔离的。默认的虚拟主机是/。
+
+8. 连接（Connection）— 客户端和RabbitMQ 服务器之间的TCP 长连接。
+
+一个连接可以包含多个通道（Channel），连接的创建和销毁开销比较大。
+
+9. 通道（Channel）— 在Connection 内部创建的轻量级虚拟连接。
+
+多个通道可以复用同一个连接（回顾：TCP 的多路复用）。每个通道都有自己独立的ID。大部分AMQP 协议的操作
+
+都可以在通道上完成。
+
+这些核心概念是理解和使用RabbitMQ 的基础，掌握它们就能应对90% 以上的消息队列使用场景。
+
+## 4.5 控制台操作
+
+[[上课演示]]
+
+## 4.6 安装SimpleAmqpClient
+
+```bash
+# 更新软件包列表，获取最新的可用版本信息
+sudo apt update
+# SimpleAmqpClient 依赖boost 库，安装Boost 的全套开发文件（头文件及预编译库）
+sudo apt install libboost-all-dev
+# SimpleAmqpClient 依赖rabbitmq-c，先安装rabbitmq-c
+cd rabbitmq-c-0.11.0/
+mkdir build && cd build
+cmake ..
+make
+sudo make install
+sudo ldconfig
+# 安装SimpleAmqpClient
+cd SimpleAmqpClient-2.5.1/
+mkdir build && cd build
+cmake ..
+make
+sudo make install
+sudo ldconfig
+```
+
+安装成功后，/usr/local/lib/目录下会多三个库文件libSimpleAmqpClient.so、libSimpleAmqpClient.so.7、
+
+```bash
+libSimpleAmqpClient.so.7.0.1；/usr/local/include/目录下会多一个文件夹SimpleAmqpClient，里面放的是头文
+```
+
+件。
+
+## 4.7 示例：生产者发送消息
+
+**rabbitmq_producer.cc**
+
+```cpp
+#include <SimpleAmqpClient/SimpleAmqpClient.h>
+#include <string>
+using namespace std;
+using namespace AmqpClient;
+int main()
+{
+9
+// 1. 创建Channel
+10
+string host = "127.0.0.1";
+11
+int port = 5672;
+12
+string username = "guest";
+13
+string password = "guest";
+14
+string vhost = "/";
+15
+Channel::ptr_t channel = Channel::Create(host, port, username, password, vhost);
+16
+// 2. 构建消息
+17
+BasicMessage::ptr_t message = BasicMessage::Create("Hello RabbitMQ");
+18
+// 3. 发送消息
+19
+string exchange = "oss.direct"; // 交换机
+20
+string routingKey = "oss"; // 消息的routingKey
+21
+channel->BasicPublish(exchange, routingKey, message); // 发布消息
+}
+```
+
+## 4.8 示例：消费者消费消息
+
+**rabbitmq_consumer.cc**
+
+```cpp
+#include <SimpleAmqpClient/SimpleAmqpClient.h>
+#include <iostream>
+#include <string>
+using namespace std;
+using namespace AmqpClient;
+int main()
+{
+10
+// 1. 以URI 的方式创建Channel
+11
+string uri = "amqp://guest:guest@localhost:5672/%2f";
+12
+Channel::ptr_t channel = Channel::CreateFromUri(uri);
+14
+// 2. 获取消息
+15
+// 方式1：拉取模式--- 消费者主动从队列中拉取消息（非阻塞式）
+16
+// const string& q = "oss.queue";
+```
+
+```bash
+18
+// 如果队列中有消息，将消息放入到evelope 中，并返回true
+19
+// 如果队列中没有消息，BasicGet 会立刻返回false
+20
+// Envelope::ptr_t envelope;
+21
+// channel->BasicGet(envelope, q);
+22
+// if (envelope && envelope->Message()) { */
+23
+//
+cout << envelope->Message()->Body() << endl;
+24
+// }
+26
+// 方式2：推送模式--- 等待RabbitMQ 推送消息(阻塞式)
+27
+const string& q = "oss.queue";
+28
+channel->BasicConsume(q); // 订阅队列
+29
+// 阻塞：等待RabbitMQ 推送消息
+30
+Envelope::ptr_t envelope = channel->BasicConsumeMessage();
+31
+// 打印消息
+32
+if (envelope && envelope->Message()) {
+33
+cout << envelope->Message()->Body() << endl;
+34
+}
+}
+```
+
+#

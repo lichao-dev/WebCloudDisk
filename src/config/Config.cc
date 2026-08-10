@@ -82,6 +82,7 @@ common::Result<Config> Config::load(const std::filesystem::path& path) {
                                               "auth.password_iterations", 600000, std::numeric_limits<int>::max());
     auto max_file_size = parse_unsigned(reader.Get("storage", "max_file_size_bytes", "104857600"),
                                         "storage.max_file_size_bytes", 1, std::numeric_limits<uint64_t>::max());
+    auto oss_enabled = parse_boolean(reader.Get("oss", "enabled", "false"), "oss.enabled");
     auto log_console = parse_boolean(reader.Get("log", "console", "true"), "log.console");
     auto log_roll_size = parse_unsigned(reader.Get("log", "roll_size", "100000000"), "log.roll_size", 1,
                                         static_cast<uint64_t>(std::numeric_limits<size_t>::max()));
@@ -99,7 +100,10 @@ common::Result<Config> Config::load(const std::filesystem::path& path) {
     if (!log_console.ok()) {
         return common::Result<Config>::failure(log_console.error().status_code, log_console.error().message);
     }
-
+    if (!oss_enabled.ok()) {
+        return common::Result<Config>::failure(oss_enabled.error().status_code,
+                                               oss_enabled.error().message);
+    }
     config.server.port = static_cast<uint16_t>(server_port.value());
     // 项目约定从项目根目录启动，所有相对路径都以进程启动工作目录为基准。
     config.server.web_root = resolve_path(working_dir, reader.Get("server", "web_root", "./www"));
@@ -118,6 +122,11 @@ common::Result<Config> Config::load(const std::filesystem::path& path) {
 
     config.storage.root = resolve_path(working_dir, reader.Get("storage", "root", "./upload"));
     config.storage.max_file_size = max_file_size.value();
+
+    config.oss.enabled = oss_enabled.value();
+    config.oss.region = reader.Get("oss", "region", "");
+    config.oss.bucket = reader.Get("oss", "bucket", "");
+    config.oss.key_prefix = reader.Get("oss", "key_prefix", "backup/sha256/");
 
     config.log.level = reader.Get("log", "level", "info");
     config.log.console = log_console.value();
@@ -138,6 +147,19 @@ common::Result<Config> Config::load(const std::filesystem::path& path) {
     if (config.auth.jwt_issuer.empty()) {
         return common::Result<Config>::failure(500, "auth.jwt_issuer must not be empty");
     }
+    if (config.oss.enabled) {
+        if (config.oss.region.empty() || config.oss.bucket.empty()) {
+            return common::Result<Config>::failure(
+                500, "oss.region and oss.bucket must not be empty when OSS backup is enabled");
+        }
+        if (config.oss.key_prefix.empty() || config.oss.key_prefix.front() == '/') {
+            return common::Result<Config>::failure(
+                500, "oss.key_prefix must be a non-empty relative object prefix");
+        }
+        if (config.oss.key_prefix.back() != '/') {
+            config.oss.key_prefix.push_back('/');
+        }
+    }
     if (!config.log.console && config.log.file.empty()) {
         return common::Result<Config>::failure(500, "log.console and log.file cannot both be disabled");
     }
@@ -155,6 +177,9 @@ std::string Config::to_string() const {
            << ", password_iterations=" << auth.password_iterations
            << ", jwt_secret_configured=" << !auth.jwt_secret.empty() << "} "
            << "storage{root=" << storage.root.string() << ", max_file_size=" << storage.max_file_size << "} "
+           << "oss{enabled=" << oss.enabled << ", region=" << oss.region
+           << ", bucket=" << oss.bucket << ", key_prefix=" << oss.key_prefix
+           << ", credentials_provider=environment} "
            << "log{level=" << log.level << ", console=" << log.console
            << ", file=" << (log.file.empty() ? "disabled" : log.file.string()) << ", roll_size=" << log.roll_size
            << ", roll_files=" << log.roll_files << "}";
