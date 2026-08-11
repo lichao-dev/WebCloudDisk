@@ -64,8 +64,9 @@ common::Result<void> Log::init(const config::Config::Log& config) {
                     return common::Result<void>::failure(500, "Failed to create log directory: " + parent.string());
                 }
             }
+            // 每次启动先归档上一次运行的非空日志，同时继续按大小轮转并限制历史文件数量。
             sinks.push_back(std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
-                config.file.string(), static_cast<std::size_t>(config.roll_size), config.roll_files));
+                config.file.string(), static_cast<std::size_t>(config.roll_size), config.roll_files, true));
         }
 
         if (sinks.empty()) {

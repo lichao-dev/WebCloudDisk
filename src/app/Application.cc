@@ -35,6 +35,7 @@ common::Result<void> Application::init() {
             return common::Result<void>::failure(backup_storage.error().status_code, backup_storage.error().message);
         }
         backup_storage_ = backup_storage.take_value();
+        file_service_.set_backup_storage(backup_storage_.get());
     }
     register_routes();
     return common::Result<void>::success();
@@ -64,8 +65,8 @@ void Application::register_routes() {
         file_handler_.download(request, response);
     };
 
-    // 注册需要计算密码哈希，上传需要计算文件哈希并写盘；这两个处理器进入
-    // 计算队列执行，避免阻塞网络线程。
+    // 注册需要计算密码哈希，上传需要计算文件哈希、写盘并同步尝试 OSS 备份；
+    // 这两个处理器进入计算队列执行，避免阻塞网络线程。
     server_.POST("/api/v1/auth/register", 0, register_handler);
     server_.POST("/api/v1/auth/login", login_handler);
     server_.GET("/api/v1/user/me", current_user_handler);

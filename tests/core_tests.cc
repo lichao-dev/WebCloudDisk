@@ -195,7 +195,12 @@ void test_logging(const std::filesystem::path& root) {
     LOG_INFO("Configuration: {}", config_text);
     webdisk::log::Log::shutdown();
 
-    std::ifstream input(log_config.file);
+    assert(webdisk::log::Log::init(log_config));
+    LOG_INFO("second run log test");
+    webdisk::log::Log::shutdown();
+
+    const auto archived_log = log_config.file.parent_path() / "test.1.log";
+    std::ifstream input(archived_log);
     const std::string content((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
     assert(content.find("debug log test: 42") != std::string::npos);
     assert(content.find("error log test") != std::string::npos);
@@ -208,6 +213,12 @@ void test_logging(const std::filesystem::path& root) {
     assert(content.find("private-db-user") == std::string::npos);
     assert(content.find("private-db-password") == std::string::npos);
     assert(content.find("private-jwt-secret") == std::string::npos);
+
+    std::ifstream current_input(log_config.file);
+    const std::string current_content((std::istreambuf_iterator<char>(current_input)),
+                                      std::istreambuf_iterator<char>());
+    assert(current_content.find("second run log test") != std::string::npos);
+    assert(current_content.find("debug log test: 42") == std::string::npos);
 }
 
 } // namespace

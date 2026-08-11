@@ -13,6 +13,10 @@ FileService::FileService(const repository::FileRepository& files, storage::FileS
       storage_{storage},
       max_file_size_{max_file_size} {}
 
+void FileService::set_backup_storage(storage::BackupStorage* backup_storage) {
+    backup_storage_ = backup_storage;
+}
+
 common::Result<std::string> FileService::sanitize_filename(const std::string& filename) {
     // 查找文件名中最后一个 / 或 \，只保留最后的基础文件名，同时兼容 Linux/macOS 路径 和 Windows 路径
     const size_t slash = filename.find_last_of("/\\");
@@ -27,6 +31,26 @@ common::Result<std::string> FileService::sanitize_filename(const std::string& fi
 
     // 成功时返回安全的基础文件名
     return common::Result<std::string>::success(std::move(base));
+}
+
+void FileService::try_backup(uint64_t user_id, const std::string& hashcode) const {
+    if (backup_storage_ == nullptr) {
+        return;
+    }
+
+    auto local_path = storage_.path_for(hashcode);
+    if (!local_path) {
+        LOG_WARN("File backup skipped because the local path is unavailable: user_id={}, hashcode={}, error={}",
+                 user_id, hashcode, local_path.error().message);
+        return;
+    }
+
+    auto backed_up = backup_storage_->backup_file(hashcode, local_path.value());
+    if (!backed_up) {
+        // 本地磁盘是主存储。OSS 暂时不可用时保留本地上传结果，下一期由消息队列负责可靠重试。
+        LOG_WARN("File backup failed; continuing with local upload: user_id={}, hashcode={}, error={}", user_id,
+                 hashcode, backed_up.error().message);
+    }
 }
 
 void FileService::list(uint64_t user_id, wfrest::HttpResp* response, ListCallback callback) const {
@@ -61,6 +85,9 @@ void FileService::upload(uint64_t user_id, const std::string& untrusted_filename
         callback(common::Result<UploadedFile>::failure(stored.error().status_code, stored.error().message));
         return;
     }
+
+    // 即使内容已经存在，也再次尝试备份，以便修复此前因 OSS 故障而遗漏的对象。
+    try_backup(user_id, hashcode.value());
 
     const std::string safe_filename = filename.value();
     const uint64_t file_size = static_cast<uint64_t>(content.size());

@@ -1,41 +1,37 @@
 # WebCloudDisk 项目上下文
 
-> 更新时间：2026-08-05
+> 更新时间：2026-08-11
 > 当前项目路径：`/Users/lichao/workspace/projects/WebCloudDisk`
 > 目标：让新的 Codex 对话先阅读本文件，再基于当前 checkout 和未提交修改继续工作。
 
 ## 1. 当前阶段与范围
 
-WebCloudDisk 是一个 C++17 Web 网盘项目。当前正在实现第一期单体后端，使用 wfrest、Workflow、MySQL 和本地文件系统，已经覆盖：
+WebCloudDisk 是一个 C++17 Web 网盘项目。当前在第一期单体后端基础上接入 OSS 容灾备份，使用 wfrest、Workflow、MySQL、本地文件系统和阿里云 OSS C++ SDK V2，已经覆盖：
 
 - 用户注册与登录。
 - JWT 访问令牌。
 - 获取当前用户信息。
 - 查询当前用户文件列表。
 - 本地文件上传和下载。
+- 可选的 OSS 同步备份；本地磁盘仍是主存储。
 - INI 配置加载与校验。
 - 统一 JSON API 响应、错误传播和日志。
 
-当前代码仍处于第一期：尚未实现 Docker/Compose 部署、RabbitMQ、OSS、微服务、文件删除和分享。除非用户主动扩大范围，否则不要把文档里的后续规划当成已实现功能。
+当前尚未实现 Docker/Compose 部署、RabbitMQ、微服务、文件删除和分享。OSS 已完成配置、客户端封装和同步上传接入，但备份失败自动重试及本地文件丢失后的恢复仍未实现。
 
 需求主文档：`docs/Web网盘项目-Markdown/Web网盘项目.md`：
 
 - 第 1 章对应当前第一期本地存储实现。
 - 第 2 章 Docker 当前是学习和后续容器化准备，仓库里还没有项目 Dockerfile、Compose 或镜像构建流程。
-- 第 3 章 OSS 是第二期学习/规划内容，尚未接入当前代码。
+- 第 3 章 OSS 已开始接入当前代码，采用“本地为主、OSS 容灾备份”的结构。
 
 ## 2. 当前 Git 与工作区状态
 
 - 当前分支：`main`。
-- 当前基线提交：`b9c1bdf Fix phase-one build errors and update documentation`，与 `origin/main` 同步。
-- 截至 2026-08-05，工作区有大量尚未提交的用户修改：本文件更新前共有 30 个已跟踪文件被修改；更新本文件后它也属于未提交修改；另有未跟踪的 `docs/如何看懂程序.md`。
-- 现有改动主要包括：
-  - 构造函数成员初始化统一使用花括号、删除项目代码中的局部命名空间导入、补全显式类型限定等风格整理。
-  - 全量检查 Lambda `mutable`，删除确定多余的 9 处，仅保留 `AuthService.cc` 中需要再次移动捕获值的 3 处。
-  - 在 Application、Repository、认证/密码哈希、文件服务和存储等代码旁补充简洁中文意图或安全注释。
-  - 调整部分文件处理、JSON 构造、命名和测试代码；具体行为以当前 `git diff` 为准。
-  - `README.md` 统一数据库名；需求文档扩充 Docker 和第二期 OSS 内容。
-- 上述修改尚未提交，全部视为用户当前工作成果；不要覆盖、还原、重置或顺手重写。开始新任务前必须重新查看 `git status`、最近提交和相关文件的精确 diff。
+- 当前基线提交：`33c2623 Add OSS backup storage foundation`。
+- 当前工作区正在接入上传流程中的同步 OSS 备份；具体状态始终以实时 `git status` 和 `git diff` 为准。
+- 已提交的 OSS 基础包括配置读取、`BackupStorage` 接口、`OssBackupStorage` V2 实现、手动冒烟程序，以及具体的本地主存储 `FileStorage`。
+- 未提交修改同样视为用户当前工作成果；不要覆盖、还原或重置。
 - `conf/server.ini`、`log/`、`upload/`、`build/` 和 `compile_commands.json` 已在 `.gitignore` 中忽略。
 - `conf/server.ini` 含数据库密码和 JWT 密钥，不要打印、提交或写入文档。
 
@@ -52,9 +48,9 @@ HTTP Handler / Middleware
   ↓
 Service
   ↓
-Repository / FileStorage
+Repository / FileStorage / BackupStorage
   ↓
-MySqlClient / 本地文件系统
+MySqlClient / 本地文件系统 / OSS
 ```
 
 各目录职责：
@@ -69,7 +65,7 @@ MySqlClient / 本地文件系统
 - `src/repository`：生成 SQL、解析 MySQL 结果、把底层错误转换为 `Result`。
 - `src/security`：PBKDF2 密码哈希、JWT、SHA-256。
 - `src/service`：注册、登录、用户查询和文件业务规则。
-- `src/storage`：文件存储接口和本地内容寻址实现。
+- `src/storage`：具体的本地内容寻址主存储、备份接口和 OSS 备份实现。
 - `tests`：核心组件测试，不依赖真实 MySQL。
 
 关键依赖关系由 `Application` 成员声明顺序和构造函数初始化顺序保证：
@@ -81,7 +77,8 @@ Config
   │   └─ FileRepository
   ├─ PasswordHasher
   ├─ JwtService
-  └─ FileStorage
+  ├─ FileStorage
+  └─ OssBackupStorage（可选）
        ↓
 Service
   ↓
@@ -284,9 +281,10 @@ MySQL 错误处理先区分 Workflow 传输失败与 MySQL ERR Packet。用户�
 3. 如果 `{root}/{hashcode}` 已存在则跳过重复写入。
 4. 否则先写 `{root}/.tmp/<hash>.<random>`。
 5. 完整写入后通过 rename 原子发布到 `{root}/{hashcode}`。
-6. 再插入 `tbl_file` 元数据。
+6. OSS 启用时，根据本地文件路径同步尝试备份 `key_prefix + hashcode`；失败只记录日志。
+7. 再插入 `tbl_file` 元数据。
 
-存储先于数据库：数据库失败可能留下无引用文件，但不会产生指向缺失内容的数据库记录；并发上传相同内容时，rename 冲突会按去重成功处理。
+本地存储和 OSS 备份尝试均先于数据库：数据库失败可能留下无引用文件或 OSS 对象，但不会产生指向缺失内容的数据库记录；并发上传相同内容时，rename 冲突会按去重成功处理。OSS 失败不会撤销本地上传，RabbitMQ 阶段再补充可靠重试和最终一致性。
 
 当前项目没有实现无引用文件清理器。以后可由定时维护任务扫描存储目录，与数据库中的去重哈希集合比较，并在等待宽限期和二次确认后清理；`.tmp` 中断上传残留应按另一套过期规则处理。
 
@@ -394,17 +392,16 @@ ctest --test-dir build --output-on-failure
 
 当前待处理事项：
 
-1. 审核当前大批未提交修改并决定是否拆分提交；不要把源码重构、需求文档扩充和阅读指南无意间混成一个难审查的提交。
-2. 修复上面两处 `git diff --check` 格式问题，再做一次完整编译和测试。
-3. `docs/如何看懂程序.md` 仍是未跟踪文件，其中链接使用旧路径 `/home/lichao/lirui/WebCloudDisk/...`，并有 `src/common/ApiResponse.h` 等疑似旧路径；纳入提交前必须校正和复核。
-4. 如果用户仍希望统一类职责注释，先扫描 `src/` 当前覆盖情况，再只补缺失项。
+1. 使用真实环境变量运行 `cloud_disk_oss_smoke_test`，验证 RAM 权限和 Bucket 写入。
+2. 为同步 OSS 备份补充可执行的 API 集成验证。
+3. 下一阶段使用 RabbitMQ 将同步备份改为异步任务并增加可靠重试。
+4. 后续实现本地文件缺失时从 OSS 恢复的容灾闭环。
 
 macOS 默认大小写不敏感文件系统上，Workflow 源码中的 `BUILD` 文件会与 `build` 目录冲突；重建第三方 Workflow 时使用 `third_party/workflow/build-macos` 作为构建目录。
 
 ## 15. 建议下次 Codex 的开始顺序
 
 1. 先阅读本文件、`README.md`、需求主文档，再查看真实的 `git status`、最近提交和当前 `git diff`；不要只相信本文件的时间点快照。
-2. 明确用户当前要继续解释、补注释、整理提交，还是开始新功能；未获授权不要实现 Docker/OSS 等后续规划。
+2. 明确用户当前要继续 OSS 同步备份、真实连通性验证，还是开始 RabbitMQ；未获授权不要扩大功能范围。
 3. 保留第 2 节中的全部未提交成果，只修改本次任务明确涉及的文件。
-4. 若准备提交，先修正文档旧链接和两处 whitespace 问题，按“源码重构与注释 / Docker 与 OSS 文档 / 阅读指南”评估拆分。
-5. 提交前运行 `git diff --check`、`cmake --build build --parallel` 和 `ctest --test-dir build --output-on-failure`。
+4. 提交前运行 `git diff --check`、`cmake --build build --parallel` 和 `ctest --test-dir build --output-on-failure`。

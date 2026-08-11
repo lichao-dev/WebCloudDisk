@@ -1,8 +1,8 @@
 # WebCloudDisk
 
-WebCloudDisk 是一个使用 C++17 开发的 Web 网盘后端。第一期采用单体架构，基于 wfrest、Workflow 和 MySQL，实现用户认证以及本地文件上传、查询和下载。
+WebCloudDisk 是一个使用 C++17 开发的 Web 网盘后端。项目采用单体架构，基于 wfrest、Workflow 和 MySQL，实现用户认证、本地文件上传、查询和下载，并使用阿里云 OSS 提供可选的容灾备份。
 
-> 第一期不包含 Docker、RabbitMQ、OSS、文件删除和文件分享功能，这些内容留到后续阶段扩展。
+> 本地磁盘始终是主存储；启用 OSS 后，上传流程会同步尝试备份。RabbitMQ、文件删除和文件分享等功能留到后续阶段扩展。
 
 ## 第一期功能
 
@@ -11,6 +11,7 @@ WebCloudDisk 是一个使用 C++17 开发的 Web 网盘后端。第一期采用�
 - 文件列表查询
 - 本地文件上传和下载
 - 基于 SHA-256 的内容寻址存储
+- 可选的阿里云 OSS 同步容灾备份
 - INI 配置加载、参数校验和脱敏配置日志
 - 控制台与滚动文件日志
 - MySQL 用户和文件元数据持久化
@@ -25,7 +26,7 @@ WebCloudDisk 是一个使用 C++17 开发的 Web 网盘后端。第一期采用�
 | 配置与 JSON | inih、nlohmann/json |
 | 认证与安全 | jwt-cpp、OpenSSL、PBKDF2-HMAC-SHA256、SHA-256 |
 | 日志 | spdlog |
-| 文件存储 | 本地文件系统 |
+| 文件存储 | 本地文件系统、阿里云 OSS C++ SDK V2 |
 
 ## 项目结构
 
@@ -125,6 +126,9 @@ cmake --build build --target cloud_disk_oss_smoke_test
 
 程序会以文件内容的 SHA-256 作为对象名，将文件上传到配置的 `key_prefix` 下。该对象会作为正常备份保留，冒烟程序
 不会自动删除它。凭据只从环境变量读取，不要写入或提交到配置文件。
+
+服务正常运行时，文件会先写入本地主存储，再同步尝试上传 OSS，最后写入数据库元数据。OSS 备份失败只记录日志，
+不会撤销本地文件或导致用户上传失败；自动重试将在后续 RabbitMQ 阶段实现。
 
 服务程序生成在 `build/bin/cloud_disk_server`。如需将编译好的服务程序复制到项目根目录的 `bin/`，执行：
 
