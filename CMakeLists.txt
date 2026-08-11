@@ -80,7 +80,8 @@ add_library(cloud_disk_core STATIC
     src/service/UserService.cc
 
     # 文件存储
-    src/storage/LocalFileStorage.cc
+    src/storage/FileStorage.cc
+    src/storage/OssBackupStorage.cc
 )
 
 
@@ -178,6 +179,15 @@ if(BUILD_TESTING)
     )
 
     target_link_libraries(cloud_disk_core_tests PRIVATE
+        cloud_disk_core
+    )
+
+    # 手动访问真实 OSS 的冒烟程序，不注册到 CTest，避免普通测试依赖网络和云端凭据。
+    add_executable(cloud_disk_oss_smoke_test
+        tests/oss_smoke_test.cc
+    )
+
+    target_link_libraries(cloud_disk_oss_smoke_test PRIVATE
         cloud_disk_core
     )
 

@@ -1,4 +1,4 @@
-#include "storage/LocalFileStorage.h"
+#include "storage/FileStorage.h"
 
 #include <array>
 #include <cctype>
@@ -6,6 +6,7 @@
 #include <iomanip>
 #include <sstream>
 #include <system_error>
+#include <utility>
 
 #include <openssl/rand.h>
 
@@ -14,11 +15,11 @@
 namespace webdisk {
 namespace storage {
 
-LocalFileStorage::LocalFileStorage(std::filesystem::path root)
+FileStorage::FileStorage(std::filesystem::path root)
     : root_{std::move(root)},
       temporary_root_{root_ / ".tmp"} {}
 
-common::Result<void> LocalFileStorage::init() {
+common::Result<void> FileStorage::init() {
     std::error_code error;
     std::filesystem::create_directories(root_, error);
     if (error) {
@@ -35,7 +36,7 @@ common::Result<void> LocalFileStorage::init() {
     return common::Result<void>::success();
 }
 
-bool LocalFileStorage::is_valid_hashcode(const std::string& hashcode) {
+bool FileStorage::is_valid_hashcode(const std::string& hashcode) {
     if (hashcode.size() != 64) {
         return false;
     }
@@ -47,7 +48,7 @@ bool LocalFileStorage::is_valid_hashcode(const std::string& hashcode) {
     return true;
 }
 
-common::Result<std::filesystem::path> LocalFileStorage::path_for(const std::string& hashcode) const {
+common::Result<std::filesystem::path> FileStorage::path_for(const std::string& hashcode) const {
     if (!is_valid_hashcode(hashcode)) {
         LOG_ERROR("Invalid content hash passed to local file storage");
         return common::Result<std::filesystem::path>::failure(500, "Invalid file hash format");
@@ -55,7 +56,7 @@ common::Result<std::filesystem::path> LocalFileStorage::path_for(const std::stri
     return common::Result<std::filesystem::path>::success(root_ / hashcode);
 }
 
-bool LocalFileStorage::exists(const std::string& hashcode) const {
+bool FileStorage::exists(const std::string& hashcode) const {
     auto path = path_for(hashcode);
     std::error_code error;
     const bool exists = path && std::filesystem::is_regular_file(path.value(), error) && !error;
@@ -65,7 +66,7 @@ bool LocalFileStorage::exists(const std::string& hashcode) const {
     return exists;
 }
 
-common::Result<std::filesystem::path> LocalFileStorage::temporary_path(const std::string& hashcode) const {
+common::Result<std::filesystem::path> FileStorage::temporary_path(const std::string& hashcode) const {
     std::array<unsigned char, 8> random_bytes{};
     if (RAND_bytes(random_bytes.data(), static_cast<int>(random_bytes.size())) != 1) {
         LOG_ERROR("Failed to generate a random temporary filename");
@@ -80,7 +81,7 @@ common::Result<std::filesystem::path> LocalFileStorage::temporary_path(const std
     return common::Result<std::filesystem::path>::success(temporary_root_ / (hashcode + "." + suffix.str()));
 }
 
-common::Result<bool> LocalFileStorage::store_if_absent(const std::string& hashcode, std::string_view content) {
+common::Result<bool> FileStorage::store_if_absent(const std::string& hashcode, std::string_view content) {
     auto final_path = path_for(hashcode);
     if (!final_path) {
         return common::Result<bool>::failure(final_path.error().status_code, final_path.error().message);

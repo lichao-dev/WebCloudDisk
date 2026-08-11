@@ -81,7 +81,7 @@ Config
   │   └─ FileRepository
   ├─ PasswordHasher
   ├─ JwtService
-  └─ LocalFileStorage
+  └─ FileStorage
        ↓
 Service
   ↓
@@ -275,7 +275,7 @@ MySQL 错误处理先区分 Workflow 传输失败与 MySQL ERR Packet。用户�
 
 ## 9. 文件存储与一致性
 
-`FileStorage` 是抽象接口；第一期实现为 `LocalFileStorage`。这样 Service 不依赖具体本地实现，也便于测试或替换存储后端。不过当前接口中的 `path_for()` 返回本地文件路径，因此它只做到了第一步解耦；未来真正接入 OSS 时仍可能需要改成流式读写或下载响应接口。
+`FileStorage` 是本地主存储的具体实现，负责基于内容哈希的文件去重、临时文件写入和原子发布。项目确定主存储只使用本地磁盘，因此不再为其他主存储类型保留抽象接口；OSS 通过独立的 `BackupStorage` 接口提供容灾备份能力。
 
 上传流程：
 

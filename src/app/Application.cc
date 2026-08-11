@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <limits>
 
+#include "storage/OssBackupStorage.h"
+
 namespace webdisk {
 namespace app {
 
@@ -26,6 +28,13 @@ common::Result<void> Application::init() {
     auto storage_result = storage_.init();
     if (!storage_result) {
         return storage_result;
+    }
+    if (config_.oss.enabled) {
+        auto backup_storage = storage::OssBackupStorage::create(config_.oss);
+        if (!backup_storage) {
+            return common::Result<void>::failure(backup_storage.error().status_code, backup_storage.error().message);
+        }
+        backup_storage_ = backup_storage.take_value();
     }
     register_routes();
     return common::Result<void>::success();

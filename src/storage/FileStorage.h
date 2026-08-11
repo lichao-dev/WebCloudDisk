@@ -11,14 +11,20 @@ namespace storage {
 
 class FileStorage {
 public:
-    virtual ~FileStorage() = default;
+    explicit FileStorage(std::filesystem::path root);
 
-    // 按内容哈希去重存储文件；返回 true 表示新写入，false 表示内容已存在，失败则返回存储错误。
-    virtual common::Result<bool> store_if_absent(const std::string& hashcode, std::string_view content) = 0;
-    // 检查指定内容哈希对应的普通文件是否存在。
-    virtual bool exists(const std::string& hashcode) const = 0;
-    // 校验内容哈希并计算对应的存储路径，不检查该路径上的文件是否存在。
-    virtual common::Result<std::filesystem::path> path_for(const std::string& hashcode) const = 0;
+    common::Result<void> init();
+    common::Result<bool> store_if_absent(const std::string& hashcode, std::string_view content);
+    bool exists(const std::string& hashcode) const;
+    common::Result<std::filesystem::path> path_for(const std::string& hashcode) const;
+
+private:
+    static bool is_valid_hashcode(const std::string& hashcode);
+    // 根据文件的 hashcode，生成一个带随机后缀的临时文件路径
+    common::Result<std::filesystem::path> temporary_path(const std::string& hashcode) const;
+
+    std::filesystem::path root_;
+    std::filesystem::path temporary_root_;
 };
 
 } // namespace storage

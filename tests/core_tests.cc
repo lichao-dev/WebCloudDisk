@@ -3,17 +3,46 @@
 #include "security/JwtService.h"
 #include "security/PasswordHasher.h"
 #include "security/Sha256.h"
-#include "storage/LocalFileStorage.h"
+#include "storage/FileStorage.h"
+#include "storage/OssBackupStorage.h"
 
 #include <cassert>
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <optional>
 #include <string>
+#include <utility>
 
 namespace {
+
+class EnvironmentVariableGuard {
+public:
+    explicit EnvironmentVariableGuard(std::string name)
+        : name_{std::move(name)} {
+        if (const char* value = std::getenv(name_.c_str()); value != nullptr) {
+            original_value_ = value;
+        }
+    }
+
+    ~EnvironmentVariableGuard() {
+        if (original_value_) {
+            setenv(name_.c_str(), original_value_->c_str(), 1);
+        } else {
+            unsetenv(name_.c_str());
+        }
+    }
+
+    void set(const char* value) const { assert(setenv(name_.c_str(), value, 1) == 0); }
+    void unset() const { assert(unsetenv(name_.c_str()) == 0); }
+
+private:
+    std::string name_;
+    std::optional<std::string> original_value_;
+};
 
 std::filesystem::path make_test_root() {
     const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
@@ -98,7 +127,7 @@ void test_jwt() {
 }
 
 void test_storage(const std::filesystem::path& root) {
-    webdisk::storage::LocalFileStorage storage(root / "upload");
+    webdisk::storage::FileStorage storage(root / "upload");
     assert(storage.init());
     constexpr std::string_view content{"binary\0content", 14};
     auto hashcode = webdisk::security::Sha256::hex(content);
@@ -108,6 +137,34 @@ void test_storage(const std::filesystem::path& root) {
     assert(first.ok() && first.value());
     assert(second.ok() && !second.value());
     assert(storage.exists(hashcode.value()));
+}
+
+void test_oss_backup_storage(const std::filesystem::path& root) {
+    EnvironmentVariableGuard access_key_id{"OSS_ACCESS_KEY_ID"};
+    EnvironmentVariableGuard access_key_secret{"OSS_ACCESS_KEY_SECRET"};
+    EnvironmentVariableGuard session_token{"OSS_SESSION_TOKEN"};
+    access_key_id.unset();
+    access_key_secret.unset();
+    session_token.unset();
+
+    webdisk::config::Config::Oss config;
+    config.enabled = true;
+    config.region = "cn-hangzhou";
+    config.bucket = "test-backup-bucket";
+
+    auto missing_credentials = webdisk::storage::OssBackupStorage::create(config);
+    assert(!missing_credentials);
+    assert(missing_credentials.error().message.find("credentials") != std::string::npos);
+
+    access_key_id.set("test-access-key-id");
+    access_key_secret.set("test-access-key-secret");
+    auto storage = webdisk::storage::OssBackupStorage::create(config);
+    assert(storage);
+
+    const std::string valid_hashcode(64, 'a');
+    assert(!storage.value()->backup_file("invalid-hash", root));
+    assert(!storage.value()->backup_file(valid_hashcode, root / "missing-file"));
+    assert(!storage.value()->backup_file(valid_hashcode, root));
 }
 
 void test_logging(const std::filesystem::path& root) {
@@ -161,6 +218,7 @@ int main() {
     test_password_hashing();
     test_jwt();
     test_storage(root);
+    test_oss_backup_storage(root);
     test_logging(root);
     std::filesystem::remove_all(root);
     std::cout << "all core tests passed\n";

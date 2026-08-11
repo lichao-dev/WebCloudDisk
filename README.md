@@ -104,6 +104,28 @@ cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 
+### OSS 手动冒烟验证
+
+普通 CTest 不访问 OSS。需要验证 Region、Bucket、RAM 权限和 OSS SDK V2 时，先在 `conf/server.ini` 中启用
+`[oss]` 并填写 `region`、`bucket`，然后通过环境变量提供凭据：
+
+```bash
+export OSS_ACCESS_KEY_ID="your_access_key_id"
+export OSS_ACCESS_KEY_SECRET="your_access_key_secret"
+# 使用 STS 临时凭据时再设置：
+export OSS_SESSION_TOKEN="your_session_token"
+```
+
+选择一个不超过 `storage.max_file_size_bytes` 的本地文件执行：
+
+```bash
+cmake --build build --target cloud_disk_oss_smoke_test
+./build/bin/cloud_disk_oss_smoke_test --config conf/server.ini --file README.md
+```
+
+程序会以文件内容的 SHA-256 作为对象名，将文件上传到配置的 `key_prefix` 下。该对象会作为正常备份保留，冒烟程序
+不会自动删除它。凭据只从环境变量读取，不要写入或提交到配置文件。
+
 服务程序生成在 `build/bin/cloud_disk_server`。如需将编译好的服务程序复制到项目根目录的 `bin/`，执行：
 
 ```bash

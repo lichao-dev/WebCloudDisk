@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+
 #include <wfrest/HttpServer.h>
 
 #include "config/Config.h"
@@ -15,7 +17,8 @@
 #include "service/AuthService.h"
 #include "service/FileService.h"
 #include "service/UserService.h"
-#include "storage/LocalFileStorage.h"
+#include "storage/BackupStorage.h"
+#include "storage/FileStorage.h"
 
 namespace webdisk {
 namespace app {
@@ -37,7 +40,8 @@ private:
     repository::FileRepository files_;
     security::PasswordHasher password_hasher_;
     security::JwtService jwt_service_;
-    storage::LocalFileStorage storage_;
+    storage::FileStorage storage_;
+    std::unique_ptr<storage::BackupStorage> backup_storage_;
     service::AuthService auth_service_;
     service::UserService user_service_;
     service::FileService file_service_;
