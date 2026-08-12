@@ -2,7 +2,7 @@
 
 WebCloudDisk 是一个使用 C++17 开发的 Web 网盘后端。项目采用单体架构，基于 wfrest、Workflow 和 MySQL，实现用户认证、本地文件上传、查询和下载，并使用阿里云 OSS 提供可选的容灾备份。
 
-> 本地磁盘始终是主存储；启用 OSS 后，上传流程会同步尝试备份。RabbitMQ、文件删除和文件分享等功能留到后续阶段扩展。
+> 本地磁盘始终是主存储；启用 OSS 后，上传流程会同步尝试备份。RabbitMQ 客户端依赖已经接入构建，异步备份业务逻辑、文件删除和文件分享等功能留到后续阶段扩展。
 
 ## 第一期功能
 
@@ -27,6 +27,7 @@ WebCloudDisk 是一个使用 C++17 开发的 Web 网盘后端。项目采用单�
 | 认证与安全 | jwt-cpp、OpenSSL、PBKDF2-HMAC-SHA256、SHA-256 |
 | 日志 | spdlog |
 | 文件存储 | 本地文件系统、阿里云 OSS C++ SDK V2 |
+| 消息队列客户端 | rabbitmq-c、SimpleAmqpClient |
 
 ## 项目结构
 
@@ -60,10 +61,11 @@ WebCloudDisk/
 
 ```bash
 sudo apt update
-sudo apt install -y build-essential cmake libssl-dev zlib1g-dev
+sudo apt install -y build-essential cmake libssl-dev zlib1g-dev libboost-all-dev
 ```
 
-项目依赖的第三方源码位于 `third_party/`。首次构建或把项目迁移到另一台机器后，需要按照 [第三方库编译与迁移指南](docs/第三方库编译与迁移指南.md) 编译 Workflow、wfrest 和 spdlog 等依赖；不要直接复用其他机器或旧路径下生成的 CMake 缓存。
+项目依赖的第三方源码位于 `third_party/`。首次构建或把项目迁移到另一台机器后，需要按照 [第三方库编译与迁移指南](docs/第三方库编译与迁移指南.md) 先编译 Workflow 和 wfrest；不要直接复用其他机器或旧路径下生成的 CMake 缓存。
+spdlog、OSS SDK、rabbitmq-c 和 SimpleAmqpClient 由主项目 CMake 按依赖顺序编译，不需要提前安装到系统目录。
 
 ## 初始化数据库
 
@@ -104,6 +106,8 @@ cmake -S . -B build \
 cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
+
+`cloud_disk_rabbitmq_client_tests` 只验证客户端静态库能够创建和读取 AMQP 消息，不连接 RabbitMQ Broker。
 
 ### OSS 手动冒烟验证
 

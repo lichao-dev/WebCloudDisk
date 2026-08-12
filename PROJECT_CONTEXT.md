@@ -1,12 +1,12 @@
 # WebCloudDisk 项目上下文
 
-> 更新时间：2026-08-11
+> 更新时间：2026-08-12
 > 当前项目路径：`/Users/lichao/workspace/projects/WebCloudDisk`
 > 目标：让新的 Codex 对话先阅读本文件，再基于当前 checkout 和未提交修改继续工作。
 
 ## 1. 当前阶段与范围
 
-WebCloudDisk 是一个 C++17 Web 网盘项目。当前在第一期单体后端基础上接入 OSS 容灾备份，使用 wfrest、Workflow、MySQL、本地文件系统和阿里云 OSS C++ SDK V2，已经覆盖：
+WebCloudDisk 是一个 C++17 Web 网盘项目。第二期 OSS 容灾备份已经完成并通过真实 Bucket 与 HTTP 上传验收，当前开始第三期 RabbitMQ 异步备份准备，已经覆盖：
 
 - 用户注册与登录。
 - JWT 访问令牌。
@@ -17,20 +17,21 @@ WebCloudDisk 是一个 C++17 Web 网盘项目。当前在第一期单体后端�
 - INI 配置加载与校验。
 - 统一 JSON API 响应、错误传播和日志。
 
-当前尚未实现 Docker/Compose 部署、RabbitMQ、微服务、文件删除和分享。OSS 已完成配置、客户端封装和同步上传接入，但备份失败自动重试及本地文件丢失后的恢复仍未实现。
+当前尚未实现 Docker/Compose 部署、RabbitMQ 生产者/消费者、微服务、文件删除和分享。rabbitmq-c 与 SimpleAmqpClient 已接入主项目构建，但消息配置、发布、消费和失败重试逻辑尚未实现；本地文件丢失后的 OSS 恢复也留待后续完成。
 
 需求主文档：`docs/Web网盘项目-Markdown/Web网盘项目.md`：
 
 - 第 1 章对应当前第一期本地存储实现。
 - 第 2 章 Docker 当前是学习和后续容器化准备，仓库里还没有项目 Dockerfile、Compose 或镜像构建流程。
-- 第 3 章 OSS 已开始接入当前代码，采用“本地为主、OSS 容灾备份”的结构。
+- 第 3 章 OSS 已完成当前同步备份范围，采用“本地为主、OSS 容灾备份”的结构。
+- 第 4 章 RabbitMQ 已完成客户端依赖接入，业务逻辑尚未开始。
 
 ## 2. 当前 Git 与工作区状态
 
 - 当前分支：`main`。
-- 当前基线提交：`33c2623 Add OSS backup storage foundation`。
-- 当前工作区正在接入上传流程中的同步 OSS 备份；具体状态始终以实时 `git status` 和 `git diff` 为准。
-- 已提交的 OSS 基础包括配置读取、`BackupStorage` 接口、`OssBackupStorage` V2 实现、手动冒烟程序，以及具体的本地主存储 `FileStorage`。
+- 当前基线提交：`3d3702c Integrate OSS backup and improve log rotation`。
+- 当前工作区正在接入 rabbitmq-c 0.18.0 与 SimpleAmqpClient 2.6.0；具体状态始终以实时 `git status` 和 `git diff` 为准。
+- OSS 配置、客户端封装、同步上传、真实 Bucket 冒烟和 HTTP 上传链路均已完成验证。
 - 未提交修改同样视为用户当前工作成果；不要覆盖、还原或重置。
 - `conf/server.ini`、`log/`、`upload/`、`build/` 和 `compile_commands.json` 已在 `.gitignore` 中忽略。
 - `conf/server.ini` 含数据库密码和 JWT 密钥，不要打印、提交或写入文档。
@@ -343,10 +344,13 @@ LOG_CRITICAL(...)
 - inih：头文件使用。
 - nlohmann/json 3.12.0：头文件使用，当前实际目录是 `third_party/nlohmann_json/include`。
 - jwt-cpp 0.7.2：头文件使用。
-- spdlog 1.17.0：静态库 `third_party/spdlog/build/libspdlog.a`。
+- spdlog 1.17.0：由主项目 CMake 通过 `add_subdirectory()` 编译为静态库。
 - Workflow 1.0.1：静态库 `third_party/workflow/_lib/libworkflow.a`。
 - wfrest 0.9.9：静态库 `third_party/wfrest/_lib/libwfrest.a`。
-- 系统依赖：OpenSSL、zlib、Threads。
+- 阿里云 OSS C++ SDK V2：由主项目 CMake 通过 `add_subdirectory()` 编译。
+- rabbitmq-c 0.18.0：由主项目 CMake 编译为静态库。
+- SimpleAmqpClient 2.6.0：由主项目 CMake 编译为静态库，并链接同一构建树中的 rabbitmq-c target。
+- 系统依赖：OpenSSL、zlib、Threads、Boost chrono。
 
 标准构建命令：
 
@@ -361,7 +365,7 @@ ctest --test-dir build --output-on-failure
 
 如果移动了项目路径，必须删除或换用新的 build 目录重新配置；不要复用记录旧绝对路径的 CMakeCache。
 
-第三方库重建顺序：spdlog → Workflow → wfrest。wfrest 配置时需要：
+需要提前编译的第三方库顺序为：Workflow → wfrest。wfrest 配置时需要：
 
 ```bash
 -DWorkflow_DIR="${PROJECT_ROOT}/third_party/workflow"
@@ -384,17 +388,19 @@ ctest --test-dir build --output-on-failure
 
 ## 14. 当前已验证状态与待处理事项
 
-2026-08-05 在当前路径的 `build/` 目录对现有脏工作区重新验证：
+2026-08-12 在全新临时构建目录对当前工作区验证：
 
-- `cmake --build build --parallel` 成功，生成 `cloud_disk_server` 和 `cloud_disk_core_tests`。
-- `ctest --test-dir build --output-on-failure` 通过，共 `1/1` 个测试。
-- 完整 `git diff --check` 尚未通过，发现两处已有格式问题：`docs/Web网盘项目-Markdown/Web网盘项目.md` 文件末尾多一个空行，`src/log/Log.cc` 第 14 行有尾随空格。这两处不是本次上下文整理修改，提交前应单独修复。
+- Debug 配置和完整构建成功，rabbitmq-c 与 SimpleAmqpClient 均生成静态库。
+- spdlog 由主项目编译到 `build/third_party/spdlog/`，Debug 产物为 `libspdlogd.a`，Release 产物为 `libspdlog.a`，不再依赖源码目录中的预编译产物。
+- `ctest --test-dir <build> --output-on-failure` 通过，共 `2/2` 个测试。
+- 安装结果只包含 `bin/cloud_disk_server`，不会安装第三方 RabbitMQ 客户端库。
+- 子项目没有覆盖主项目的 Debug 构建类型或全局 `CMAKE_CXX_FLAGS`。
 
 当前待处理事项：
 
-1. 使用真实环境变量运行 `cloud_disk_oss_smoke_test`，验证 RAM 权限和 Bucket 写入。
-2. 为同步 OSS 备份补充可执行的 API 集成验证。
-3. 下一阶段使用 RabbitMQ 将同步备份改为异步任务并增加可靠重试。
+1. 设计并加载 RabbitMQ 配置，敏感凭据不写入示例配置或日志。
+2. 封装消息发布接口，并为文件上传发布 OSS 备份任务。
+3. 增加独立消费者进程，消费任务并调用 `BackupStorage`，补充确认、重试和失败处理。
 4. 后续实现本地文件缺失时从 OSS 恢复的容灾闭环。
 
 macOS 默认大小写不敏感文件系统上，Workflow 源码中的 `BUILD` 文件会与 `build` 目录冲突；重建第三方 Workflow 时使用 `third_party/workflow/build-macos` 作为构建目录。
@@ -402,6 +408,6 @@ macOS 默认大小写不敏感文件系统上，Workflow 源码中的 `BUILD` �
 ## 15. 建议下次 Codex 的开始顺序
 
 1. 先阅读本文件、`README.md`、需求主文档，再查看真实的 `git status`、最近提交和当前 `git diff`；不要只相信本文件的时间点快照。
-2. 明确用户当前要继续 OSS 同步备份、真实连通性验证，还是开始 RabbitMQ；未获授权不要扩大功能范围。
+2. 从 RabbitMQ 配置和消息边界开始，暂不直接改写已验证的同步 OSS 上传流程。
 3. 保留第 2 节中的全部未提交成果，只修改本次任务明确涉及的文件。
 4. 提交前运行 `git diff --check`、`cmake --build build --parallel` 和 `ctest --test-dir build --output-on-failure`。

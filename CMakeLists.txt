@@ -1,6 +1,6 @@
-cmake_minimum_required(VERSION 3.15)
+cmake_minimum_required(VERSION 3.22)
 
-project(WebCloudDisk LANGUAGES CXX)
+project(WebCloudDisk LANGUAGES C CXX)
 
 # 使用 C++17 标准
 set(CMAKE_CXX_STANDARD 17)
@@ -37,6 +37,51 @@ add_subdirectory(
     "${CMAKE_BINARY_DIR}/third_party/alibabacloud-oss-cpp-sdk-v2"
     EXCLUDE_FROM_ALL
 )
+
+# spdlog 随主项目静态编译，关闭示例、测试、基准和安装规则。
+set(SPDLOG_BUILD_SHARED OFF)
+set(SPDLOG_BUILD_EXAMPLE OFF)
+set(SPDLOG_BUILD_TESTS OFF)
+set(SPDLOG_BUILD_BENCH OFF)
+set(SPDLOG_INSTALL OFF)
+
+add_subdirectory(
+    "${THIRD_PARTY_DIR}/spdlog"
+    "${CMAKE_BINARY_DIR}/third_party/spdlog"
+    EXCLUDE_FROM_ALL
+)
+
+# RabbitMQ 客户端依赖随主项目按需静态编译，不安装到系统目录。
+set(BUILD_SHARED_LIBS OFF)
+set(BUILD_STATIC_LIBS ON)
+# rabbitmq-c 需要保留静态 export 定义；EXCLUDE_FROM_ALL 会阻止它进入主项目安装结果。
+set(INSTALL_STATIC_LIBS ON)
+set(BUILD_EXAMPLES OFF)
+set(BUILD_TOOLS OFF)
+set(BUILD_TOOLS_DOCS OFF)
+set(BUILD_API_DOCS OFF)
+set(RUN_SYSTEM_TESTS OFF)
+set(BUILD_OSSFUZZ OFF)
+set(ENABLE_TESTING OFF)
+set(ENABLE_SSL_SUPPORT ON)
+
+add_subdirectory(
+    "${THIRD_PARTY_DIR}/rabbitmq-c"
+    "${CMAKE_BINARY_DIR}/third_party/rabbitmq-c"
+    EXCLUDE_FROM_ALL
+)
+
+add_subdirectory(
+    "${THIRD_PARTY_DIR}/SimpleAmqpClient"
+    "${CMAKE_BINARY_DIR}/third_party/SimpleAmqpClient"
+    EXCLUDE_FROM_ALL
+)
+
+target_include_directories(SimpleAmqpClient SYSTEM PUBLIC
+    "${THIRD_PARTY_DIR}/SimpleAmqpClient/src"
+)
+
+add_library(SimpleAmqpClient::SimpleAmqpClient ALIAS SimpleAmqpClient)
 
 
 # =========================
@@ -98,7 +143,6 @@ target_include_directories(cloud_disk_core SYSTEM PUBLIC
     "${THIRD_PARTY_DIR}/inih"
     "${THIRD_PARTY_DIR}/nlohmann_json/include"
     "${THIRD_PARTY_DIR}/jwt-cpp/include"
-    "${THIRD_PARTY_DIR}/spdlog/include"
     "${THIRD_PARTY_DIR}/workflow/_include"
     "${THIRD_PARTY_DIR}/wfrest/_include"
 )
@@ -138,7 +182,7 @@ target_link_libraries(cloud_disk_core PUBLIC
     "${THIRD_PARTY_DIR}/workflow/_lib/libworkflow.a"
 
     # spdlog 静态库
-    "${THIRD_PARTY_DIR}/spdlog/build/libspdlog.a"
+    spdlog::spdlog
 
     # 系统库
     OpenSSL::SSL
@@ -191,9 +235,22 @@ if(BUILD_TESTING)
         cloud_disk_core
     )
 
+    add_executable(cloud_disk_rabbitmq_client_tests
+        tests/rabbitmq_client_tests.cc
+    )
+
+    target_link_libraries(cloud_disk_rabbitmq_client_tests PRIVATE
+        SimpleAmqpClient::SimpleAmqpClient
+    )
+
     add_test(
         NAME cloud_disk_core_tests
         COMMAND cloud_disk_core_tests
+    )
+
+    add_test(
+        NAME cloud_disk_rabbitmq_client_tests
+        COMMAND cloud_disk_rabbitmq_client_tests
     )
 
 endif()
