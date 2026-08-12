@@ -10,6 +10,14 @@ int main() {
         std::cerr << "failed to create RabbitMQ message\n";
         return 1;
     }
+    message->ContentType("application/json");
+    message->DeliveryMode(AmqpClient::BasicMessage::dm_persistent);
+    message->MessageId("test-message");
+    if (message->ContentType() != "application/json" ||
+        message->DeliveryMode() != AmqpClient::BasicMessage::dm_persistent || message->MessageId() != "test-message") {
+        std::cerr << "failed to configure persistent RabbitMQ message\n";
+        return 1;
+    }
 
     std::cout << "RabbitMQ client integration test passed\n";
     return 0;

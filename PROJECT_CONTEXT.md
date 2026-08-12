@@ -6,31 +6,31 @@
 
 ## 1. 当前阶段与范围
 
-WebCloudDisk 是一个 C++17 Web 网盘项目。第二期 OSS 容灾备份已经完成并通过真实 Bucket 与 HTTP 上传验收，当前开始第三期 RabbitMQ 异步备份准备，已经覆盖：
+WebCloudDisk 是一个 C++17 Web 网盘项目。第三期 RabbitMQ 异步 OSS 备份第一阶段已经实现，当前已经覆盖：
 
 - 用户注册与登录。
 - JWT 访问令牌。
 - 获取当前用户信息。
 - 查询当前用户文件列表。
 - 本地文件上传和下载。
-- 可选的 OSS 同步备份；本地磁盘仍是主存储。
+- 可选的 RabbitMQ 异步 OSS 备份；本地磁盘仍是主存储。
 - INI 配置加载与校验。
 - 统一 JSON API 响应、错误传播和日志。
 
-当前尚未实现 Docker/Compose 部署、RabbitMQ 生产者/消费者、微服务、文件删除和分享。rabbitmq-c 与 SimpleAmqpClient 已接入主项目构建，但消息配置、发布、消费和失败重试逻辑尚未实现；本地文件丢失后的 OSS 恢复也留待后续完成。
+当前尚未实现 Docker/Compose 项目部署、Transactional Outbox、延迟重试、死信队列、RabbitMQ 自动重连、微服务、文件删除和分享。本地文件丢失后的 OSS 恢复也留待后续完成。
 
 需求主文档：`docs/Web网盘项目-Markdown/Web网盘项目.md`：
 
 - 第 1 章对应当前第一期本地存储实现。
 - 第 2 章 Docker 当前是学习和后续容器化准备，仓库里还没有项目 Dockerfile、Compose 或镜像构建流程。
-- 第 3 章 OSS 已完成当前同步备份范围，采用“本地为主、OSS 容灾备份”的结构。
-- 第 4 章 RabbitMQ 已完成客户端依赖接入，业务逻辑尚未开始。
+- 第 3 章 OSS 保留“本地为主、OSS 容灾备份”的结构，实际上传已经迁移到独立 Worker。
+- 第 4 章 RabbitMQ 已完成第一阶段生产者、持久化队列、消费者和手动确认链路。
 
 ## 2. 当前 Git 与工作区状态
 
 - 当前分支：`main`。
-- 当前基线提交：`3d3702c Integrate OSS backup and improve log rotation`。
-- 当前工作区正在接入 rabbitmq-c 0.18.0 与 SimpleAmqpClient 2.6.0；具体状态始终以实时 `git status` 和 `git diff` 为准。
+- 当前基线提交：`ca484b7 Integrate RabbitMQ client dependencies`。
+- 当前工作区正在实现 RabbitMQ 异步 OSS 备份第一阶段；具体状态始终以实时 `git status` 和 `git diff` 为准。
 - OSS 配置、客户端封装、同步上传、真实 Bucket 冒烟和 HTTP 上传链路均已完成验证。
 - 未提交修改同样视为用户当前工作成果；不要覆盖、还原或重置。
 - `conf/server.ini`、`log/`、`upload/`、`build/` 和 `compile_commands.json` 已在 `.gitignore` 中忽略。
@@ -49,9 +49,15 @@ HTTP Handler / Middleware
   ↓
 Service
   ↓
-Repository / FileStorage / BackupStorage
+Repository / FileStorage / RabbitMqBackupTaskPublisher
   ↓
-MySqlClient / 本地文件系统 / OSS
+MySqlClient / 本地文件系统 / RabbitMQ
+
+cloud_disk_backup_worker
+  ↓
+RabbitMQ / FileStorage / OssBackupStorage
+  ↓
+本地文件系统 / OSS
 ```
 
 各目录职责：
@@ -62,11 +68,14 @@ MySqlClient / 本地文件系统 / OSS
 - `src/database`：封装 Workflow MySQL 任务创建、连接 URL 和 SQL 字符串转义。
 - `src/http`：认证中间件、请求解析、Handler 和统一 API 响应。
 - `src/log`：同步 spdlog 初始化、关闭和 `LOG_*` 宏。
+- `src/messaging`：备份任务 JSON 契约、发布接口和 RabbitMQ 发布器。
 - `src/model`：`User`、`FileInfo`、`AuthContext` 等跨层数据模型。
 - `src/repository`：生成 SQL、解析 MySQL 结果、把底层错误转换为 `Result`。
 - `src/security`：PBKDF2 密码哈希、JWT、SHA-256。
+- `src/server`：`cloud_disk_server` 进程入口，负责配置、日志、信号和 Web 应用生命周期。
 - `src/service`：注册、登录、用户查询和文件业务规则。
 - `src/storage`：具体的本地内容寻址主存储、备份接口和 OSS 备份实现。
+- `src/worker`：`cloud_disk_backup_worker` 进程入口、RabbitMQ 消费循环、消息校验、OSS 上传和手动确认。
 - `tests`：核心组件测试，不依赖真实 MySQL。
 
 关键依赖关系由 `Application` 成员声明顺序和构造函数初始化顺序保证：
@@ -79,7 +88,7 @@ Config
   ├─ PasswordHasher
   ├─ JwtService
   ├─ FileStorage
-  └─ OssBackupStorage（可选）
+  └─ RabbitMqBackupTaskPublisher（可选）
        ↓
 Service
   ↓
@@ -87,6 +96,8 @@ Middleware / Handler
   ↓
 wfrest::HttpServer
 ```
+
+独立的 `cloud_disk_backup_worker` 持有 `FileStorage`、`OssBackupStorage` 和 RabbitMQ 消费连接；Web 服务不再创建 OSS 客户端或持有 OSS 凭据。
 
 ## 4. 启动与停止
 
@@ -111,6 +122,14 @@ wfrest::HttpServer
 9. 信号处理函数调用 `done()`，主线程继续执行 `Application::stop()` 和日志关闭。
 
 `WaitGroup` 不创建线程；它只是阻塞主线程。`{1}` 表示一次 `done()` 即可解除等待。
+
+备份 Worker 使用同一配置文件和同一个 `storage.root`，但写独立日志：
+
+```bash
+./build/bin/cloud_disk_backup_worker --config conf/server.ini
+```
+
+Worker 通过带 1 秒超时的 `BasicConsumeMessage()` 等待消息，因此能定期检查 `SIGINT`/`SIGTERM` 停止标志。第一阶段不自动重连：RabbitMQ 连接或 OSS 上传失败时进程返回失败；OSS 失败的消息保持未确认，连接关闭后由 Broker 重新入队。
 
 ## 5. HTTP API
 
@@ -230,6 +249,8 @@ Service/Handler 回调在同一调用栈继续生成响应
 
 `success()`/`error()` 只设置 `HttpResp`；Workflow 会在当前请求任务序列完成后发送最终响应。
 
+文件元数据插入成功后，MySQL 完成回调通过 `response->Compute(0, ...)` 把阻塞式 RabbitMQ 发布移到 Compute 队列。发布器内部用互斥锁串行访问单个 SimpleAmqpClient Channel，并等待 Broker 的 publisher confirm。
+
 ## 8. 数据库
 
 初始化脚本：`sql/001_init.sql`，面向 MySQL 8.0。
@@ -273,7 +294,7 @@ MySQL 错误处理先区分 Workflow 传输失败与 MySQL ERR Packet。用户�
 
 ## 9. 文件存储与一致性
 
-`FileStorage` 是本地主存储的具体实现，负责基于内容哈希的文件去重、临时文件写入和原子发布。项目确定主存储只使用本地磁盘，因此不再为其他主存储类型保留抽象接口；OSS 通过独立的 `BackupStorage` 接口提供容灾备份能力。
+`FileStorage` 是本地主存储的具体实现，负责基于内容哈希的文件去重、临时文件写入和原子发布。项目确定主存储只使用本地磁盘，容灾备份也明确只使用 OSS，因此两者都采用具体类，不为其他存储类型保留抽象接口。
 
 上传流程：
 
@@ -282,10 +303,11 @@ MySQL 错误处理先区分 Workflow 传输失败与 MySQL ERR Packet。用户�
 3. 如果 `{root}/{hashcode}` 已存在则跳过重复写入。
 4. 否则先写 `{root}/.tmp/<hash>.<random>`。
 5. 完整写入后通过 rename 原子发布到 `{root}/{hashcode}`。
-6. OSS 启用时，根据本地文件路径同步尝试备份 `key_prefix + hashcode`；失败只记录日志。
-7. 再插入 `tbl_file` 元数据。
+6. 插入 `tbl_file` 元数据。
+7. OSS 与 RabbitMQ 启用时，向持久化队列发布只包含版本、哈希和大小的备份任务。
+8. Worker 从同一台机器的 `storage.root / hashcode` 读取内容，上传 `key_prefix + hashcode`，成功后手动 ACK。
 
-本地存储和 OSS 备份尝试均先于数据库：数据库失败可能留下无引用文件或 OSS 对象，但不会产生指向缺失内容的数据库记录；并发上传相同内容时，rename 冲突会按去重成功处理。OSS 失败不会撤销本地上传，RabbitMQ 阶段再补充可靠重试和最终一致性。
+本地存储先于数据库：数据库失败可能留下无引用文件，但不会产生指向缺失内容的数据库记录；并发上传相同内容时，rename 冲突会按去重成功处理。RabbitMQ 发布失败不会撤销本地上传。第一阶段尚无 Outbox，因此“数据库成功、消息发布失败”时任务可能丢失，这是后续可靠性阶段需要补齐的边界。
 
 当前项目没有实现无引用文件清理器。以后可由定时维护任务扫描存储目录，与数据库中的去重哈希集合比较，并在等待宽限期和二次确认后清理；`.tmp` 中断上传残留应按另一套过期规则处理。
 
@@ -320,7 +342,10 @@ MySQL 错误处理先区分 Workflow 传输失败与 MySQL ERR Packet。用户�
 - `[database]`：host、port、username、password、database、retry_max。
 - `[auth]`：jwt_secret、jwt_issuer、token_ttl_seconds、password_iterations。
 - `[storage]`：root、max_file_size_bytes。
+- `[rabbitmq]`：enabled、host、port、username、password、vhost、queue。
+- `[oss]` 与 `[rabbitmq]` 必须同时启用或关闭；RabbitMQ 用户名和密码不会写入配置摘要。
 - `[log]`：level、console、file、roll_size、roll_files。
+- `[log].worker_file`：Worker 独立日志文件，避免两个进程轮转同一文件。
 
 项目约定从项目根目录启动；所有相对路径相对于进程当前工作目录，而不是配置文件目录。
 
@@ -393,14 +418,17 @@ ctest --test-dir build --output-on-failure
 - Debug 配置和完整构建成功，rabbitmq-c 与 SimpleAmqpClient 均生成静态库。
 - spdlog 由主项目编译到 `build/third_party/spdlog/`，Debug 产物为 `libspdlogd.a`，Release 产物为 `libspdlog.a`，不再依赖源码目录中的预编译产物。
 - `ctest --test-dir <build> --output-on-failure` 通过，共 `2/2` 个测试。
-- 安装结果只包含 `bin/cloud_disk_server`，不会安装第三方 RabbitMQ 客户端库。
+- 安装结果包含 `bin/cloud_disk_server` 和 `bin/cloud_disk_backup_worker`，不会安装第三方 RabbitMQ 客户端库。
 - 子项目没有覆盖主项目的 Debug 构建类型或全局 `CMAKE_CXX_FLAGS`。
+- 新 Web 服务已连接本机 RabbitMQ 4.x，成功声明 `webdisk.oss.backup.v1`：durable=true、auto_delete=false、exclusive=false，并完成启动和 `Ctrl+C` 停止验证。
+- `cloud_disk_rabbitmq_smoke_test` 已通过真实 Broker 验证正式发布器、持久化消息、消费和手动 ACK；它直接消费并校验消息，不访问 OSS，成功后删除独立临时队列。正式 Worker 由真实 OSS 端到端验收覆盖。
+- 经用户明确授权，`cloud_disk_rabbitmq_oss_smoke_producer` 已把固定测试内容写入本地主存储并向业务队列发布任务；正式 Worker 成功上传当前配置的真实 OSS Bucket，随后手动 ACK，队列恢复为零待处理、零未确认消息，并完成 `Ctrl+C` 正常停止。授权约定要求本地文件和 OSS 对象作为测试备份保留。
 
 当前待处理事项：
 
-1. 设计并加载 RabbitMQ 配置，敏感凭据不写入示例配置或日志。
-2. 封装消息发布接口，并为文件上传发布 OSS 备份任务。
-3. 增加独立消费者进程，消费任务并调用 `BackupStorage`，补充确认、重试和失败处理。
+1. 增加 Transactional Outbox，消除数据库成功但消息发布失败的任务丢失窗口。
+2. 增加延迟重试、最大重试次数和 DLQ，替换当前 OSS 失败后保留消息未确认并退出 Worker 的第一阶段行为。
+3. 增加 RabbitMQ 断线重连、运行指标和自动化真实 Broker 集成测试。
 4. 后续实现本地文件缺失时从 OSS 恢复的容灾闭环。
 
 macOS 默认大小写不敏感文件系统上，Workflow 源码中的 `BUILD` 文件会与 `build` 目录冲突；重建第三方 Workflow 时使用 `third_party/workflow/build-macos` 作为构建目录。
@@ -408,6 +436,6 @@ macOS 默认大小写不敏感文件系统上，Workflow 源码中的 `BUILD` �
 ## 15. 建议下次 Codex 的开始顺序
 
 1. 先阅读本文件、`README.md`、需求主文档，再查看真实的 `git status`、最近提交和当前 `git diff`；不要只相信本文件的时间点快照。
-2. 从 RabbitMQ 配置和消息边界开始，暂不直接改写已验证的同步 OSS 上传流程。
+2. RabbitMQ 第一阶段已经实现；后续从 Outbox 和失败重试边界开始，不要重新引入同步 OSS 上传。
 3. 保留第 2 节中的全部未提交成果，只修改本次任务明确涉及的文件。
 4. 提交前运行 `git diff --check`、`cmake --build build --parallel` 和 `ctest --test-dir build --output-on-failure`。

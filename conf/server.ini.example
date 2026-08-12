@@ -44,7 +44,7 @@ root=./upload
 max_file_size_bytes=104857600
 
 [oss]
-; 本地文件始终是主存储；实际备份逻辑接入后再将此项设为 true
+; 本地文件始终是主存储；启用后由 RabbitMQ Worker 异步备份到 OSS
 enabled=false
 ; Bucket 所在地域，例如 cn-hangzhou
 region=change_me
@@ -54,6 +54,17 @@ key_prefix=backup/sha256/
 ; OSS 凭据不写入本文件，通过 OSS_ACCESS_KEY_ID、OSS_ACCESS_KEY_SECRET
 ; 以及可选的 OSS_SESSION_TOKEN 环境变量提供
 
+[rabbitmq]
+; 异步 OSS 备份开关，必须与 oss.enabled 同时启用或关闭
+enabled=false
+host=127.0.0.1
+port=5672
+username=change_me
+password=change_me
+vhost=/
+; 第一阶段使用默认交换机，队列名同时作为 routing key
+queue=webdisk.oss.backup.v1
+
 [log]
 ; 日志级别
 ; 可选值通常包括 trace/debug/info/warn/error
@@ -61,6 +72,8 @@ level=info
 ; 是否同时输出到控制台
 console=true
 file=./log/cloud_disk_server.log
+; Worker 单独写日志，避免两个进程同时轮转同一个文件
+worker_file=./log/cloud_disk_backup_worker.log
 ; 单个日志文件的最大字节数，达到后自动轮转
 roll_size=100000000
 ; 最多保留的轮转日志文件数量

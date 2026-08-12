@@ -110,6 +110,10 @@ add_library(cloud_disk_core STATIC
     # 日志
     src/log/Log.cc
 
+    # 消息队列
+    src/messaging/BackupTask.cc
+    src/messaging/RabbitMqBackupTaskPublisher.cc
+
     # 数据访问层
     src/repository/FileRepository.cc
     src/repository/UserRepository.cc
@@ -127,6 +131,9 @@ add_library(cloud_disk_core STATIC
     # 文件存储
     src/storage/FileStorage.cc
     src/storage/OssBackupStorage.cc
+
+    # 后台任务
+    src/worker/BackupWorker.cc
 )
 
 
@@ -184,6 +191,9 @@ target_link_libraries(cloud_disk_core PUBLIC
     # spdlog 静态库
     spdlog::spdlog
 
+    # RabbitMQ C++ 客户端
+    SimpleAmqpClient::SimpleAmqpClient
+
     # 系统库
     OpenSSL::SSL
     OpenSSL::Crypto
@@ -199,14 +209,22 @@ target_link_libraries(cloud_disk_core PUBLIC
 # 主程序
 # =========================
 add_executable(cloud_disk_server
-    src/main.cc
+    src/server/main.cc
+)
+
+add_executable(cloud_disk_backup_worker
+    src/worker/main.cc
 )
 
 target_link_libraries(cloud_disk_server PRIVATE
     cloud_disk_core
 )
 
-install(TARGETS cloud_disk_server
+target_link_libraries(cloud_disk_backup_worker PRIVATE
+    cloud_disk_core
+)
+
+install(TARGETS cloud_disk_server cloud_disk_backup_worker
     RUNTIME DESTINATION bin
 )
 
@@ -241,6 +259,24 @@ if(BUILD_TESTING)
 
     target_link_libraries(cloud_disk_rabbitmq_client_tests PRIVATE
         SimpleAmqpClient::SimpleAmqpClient
+    )
+
+    # 手动连接真实 Broker 的冒烟程序；验证正式发布器、消息属性、消费和 ACK，不访问 OSS。
+    add_executable(cloud_disk_rabbitmq_smoke_test
+        tests/rabbitmq_smoke_test.cc
+    )
+
+    target_link_libraries(cloud_disk_rabbitmq_smoke_test PRIVATE
+        cloud_disk_core
+    )
+
+    # 手动端到端 OSS 验收的生产端；写入固定测试内容并向业务队列发布任务，不注册到 CTest。
+    add_executable(cloud_disk_rabbitmq_oss_smoke_producer
+        tests/rabbitmq_oss_smoke_producer.cc
+    )
+
+    target_link_libraries(cloud_disk_rabbitmq_oss_smoke_producer PRIVATE
+        cloud_disk_core
     )
 
     add_test(

@@ -10,6 +10,7 @@
 #include "http/AuthMiddleware.h"
 #include "http/FileHandler.h"
 #include "http/UserHandler.h"
+#include "messaging/RabbitMqBackupTaskPublisher.h"
 #include "repository/FileRepository.h"
 #include "repository/UserRepository.h"
 #include "security/JwtService.h"
@@ -17,7 +18,6 @@
 #include "service/AuthService.h"
 #include "service/FileService.h"
 #include "service/UserService.h"
-#include "storage/BackupStorage.h"
 #include "storage/FileStorage.h"
 
 namespace webdisk {
@@ -41,7 +41,7 @@ private:
     security::PasswordHasher password_hasher_;
     security::JwtService jwt_service_;
     storage::FileStorage storage_;
-    std::unique_ptr<storage::BackupStorage> backup_storage_;
+    std::unique_ptr<messaging::RabbitMqBackupTaskPublisher> backup_task_publisher_;
     service::AuthService auth_service_;
     service::UserService user_service_;
     service::FileService file_service_;

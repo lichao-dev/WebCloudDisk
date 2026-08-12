@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <limits>
 
-#include "storage/OssBackupStorage.h"
+#include "messaging/RabbitMqBackupTaskPublisher.h"
 
 namespace webdisk {
 namespace app {
@@ -30,12 +30,13 @@ common::Result<void> Application::init() {
         return storage_result;
     }
     if (config_.oss.enabled) {
-        auto backup_storage = storage::OssBackupStorage::create(config_.oss);
-        if (!backup_storage) {
-            return common::Result<void>::failure(backup_storage.error().status_code, backup_storage.error().message);
+        auto backup_task_publisher = messaging::RabbitMqBackupTaskPublisher::create(config_.rabbitmq);
+        if (!backup_task_publisher) {
+            return common::Result<void>::failure(backup_task_publisher.error().status_code,
+                                                 backup_task_publisher.error().message);
         }
-        backup_storage_ = backup_storage.take_value();
-        file_service_.set_backup_storage(backup_storage_.get());
+        backup_task_publisher_ = backup_task_publisher.take_value();
+        file_service_.set_backup_task_publisher(backup_task_publisher_.get());
     }
     register_routes();
     return common::Result<void>::success();
@@ -65,7 +66,7 @@ void Application::register_routes() {
         file_handler_.download(request, response);
     };
 
-    // 注册需要计算密码哈希，上传需要计算文件哈希、写盘并同步尝试 OSS 备份；
+    // 注册需要计算密码哈希，上传需要计算文件哈希和同步写盘；
     // 这两个处理器进入计算队列执行，避免阻塞网络线程。
     server_.POST("/api/v1/auth/register", 0, register_handler);
     server_.POST("/api/v1/auth/login", login_handler);

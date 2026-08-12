@@ -41,16 +41,27 @@ public:
     };
 
     struct Oss {
-        bool enabled{false}; // 是否同步备份本地文件到 OSS
+        bool enabled{false}; // 是否通过 RabbitMQ 异步备份本地文件到 OSS
         std::string region;
         std::string bucket;
         std::string key_prefix{"backup/sha256/"}; // OSS 对象名前缀
+    };
+
+    struct RabbitMq {
+        bool enabled{false}; // 是否发布和消费 OSS 备份任务
+        std::string host{"127.0.0.1"};
+        uint16_t port{5672};
+        std::string username;
+        std::string password;
+        std::string vhost{"/"};
+        std::string queue{"webdisk.oss.backup.v1"};
     };
 
     struct Log {
         std::string level{"info"};
         bool console{true};
         std::filesystem::path file;
+        std::filesystem::path worker_file;
         uint64_t roll_size{100000000}; // 日志文件滚动大小
         size_t roll_files{5}; // 日志文件滚动数量
     };
@@ -64,6 +75,7 @@ public:
     Auth auth;
     Storage storage;
     Oss oss;
+    RabbitMq rabbitmq;
     Log log;
 };
 

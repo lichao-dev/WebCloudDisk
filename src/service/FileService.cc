@@ -13,8 +13,8 @@ FileService::FileService(const repository::FileRepository& files, storage::FileS
       storage_{storage},
       max_file_size_{max_file_size} {}
 
-void FileService::set_backup_storage(storage::BackupStorage* backup_storage) {
-    backup_storage_ = backup_storage;
+void FileService::set_backup_task_publisher(messaging::RabbitMqBackupTaskPublisher* backup_task_publisher) {
+    backup_task_publisher_ = backup_task_publisher;
 }
 
 common::Result<std::string> FileService::sanitize_filename(const std::string& filename) {
@@ -33,24 +33,20 @@ common::Result<std::string> FileService::sanitize_filename(const std::string& fi
     return common::Result<std::string>::success(std::move(base));
 }
 
-void FileService::try_backup(uint64_t user_id, const std::string& hashcode) const {
-    if (backup_storage_ == nullptr) {
+void FileService::try_publish_backup(uint64_t user_id, const std::string& hashcode, uint64_t size) const {
+    if (backup_task_publisher_ == nullptr) {
         return;
     }
 
-    auto local_path = storage_.path_for(hashcode);
-    if (!local_path) {
-        LOG_WARN("File backup skipped because the local path is unavailable: user_id={}, hashcode={}, error={}",
-                 user_id, hashcode, local_path.error().message);
+    auto published =
+        backup_task_publisher_->publish(messaging::BackupTask{messaging::BackupTask::current_version, hashcode, size});
+    if (!published) {
+        // 本地磁盘是主存储。第一阶段尚未实现 Outbox，发布失败不会撤销已经完成的本地上传和数据库记录。
+        LOG_WARN("OSS backup task publication failed; continuing with local upload: user_id={}, hashcode={}, error={}",
+                 user_id, hashcode, published.error().message);
         return;
     }
-
-    auto backed_up = backup_storage_->backup_file(hashcode, local_path.value());
-    if (!backed_up) {
-        // 本地磁盘是主存储。OSS 暂时不可用时保留本地上传结果，下一期由消息队列负责可靠重试。
-        LOG_WARN("File backup failed; continuing with local upload: user_id={}, hashcode={}, error={}", user_id,
-                 hashcode, backed_up.error().message);
-    }
+    LOG_DEBUG("OSS backup task published: user_id={}, hashcode={}, size={}", user_id, hashcode, size);
 }
 
 void FileService::list(uint64_t user_id, wfrest::HttpResp* response, ListCallback callback) const {
@@ -86,23 +82,28 @@ void FileService::upload(uint64_t user_id, const std::string& untrusted_filename
         return;
     }
 
-    // 即使内容已经存在，也再次尝试备份，以便修复此前因 OSS 故障而遗漏的对象。
-    try_backup(user_id, hashcode.value());
-
     const std::string safe_filename = filename.value();
+    const std::string content_hashcode = hashcode.value();
     const uint64_t file_size = static_cast<uint64_t>(content.size());
     const bool content_created = stored.value();
     WFMySQLTask* task = files_.create(
-        user_id, safe_filename, hashcode.value(), file_size,
-        [user_id, safe_filename, file_size, content_created,
-         callback = std::move(callback)](common::Result<uint64_t> result) {
+        user_id, safe_filename, content_hashcode, file_size,
+        [this, user_id, safe_filename, content_hashcode, file_size, content_created, response,
+         callback = std::move(callback)](common::Result<uint64_t> result) mutable {
             if (!result) {
                 callback(common::Result<UploadedFile>::failure(result.error().status_code, result.error().message));
                 return;
             }
-            LOG_INFO("File uploaded: user_id={}, file_id={}, size={}, new_content={}", user_id, result.value(),
-                     file_size, content_created);
-            callback(common::Result<UploadedFile>::success(UploadedFile{result.value(), safe_filename}));
+            const uint64_t file_id = result.value();
+            // BasicPublish 会等待 Broker 确认。移到计算队列，避免阻塞 Workflow 的数据库完成回调线程。
+            response->Compute(0, [this, user_id, file_id, safe_filename, content_hashcode, file_size, content_created,
+                                  callback = std::move(callback)]() {
+                    // 只有文件元数据成功写入后才提交备份任务，避免为失败的上传创建无意义的 OSS 对象。
+                try_publish_backup(user_id, content_hashcode, file_size);
+                LOG_INFO("File uploaded: user_id={}, file_id={}, size={}, new_content={}", user_id, file_id, file_size,
+                         content_created);
+                callback(common::Result<UploadedFile>::success(UploadedFile{file_id, safe_filename}));
+            });
         });
     response->add_task(task);
 }

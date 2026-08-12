@@ -4,8 +4,8 @@
 #include <memory>
 #include <string>
 
+#include "common/Result.h"
 #include "config/Config.h"
-#include "storage/BackupStorage.h"
 
 namespace alibabacloud {
 namespace oss2 {
@@ -16,13 +16,13 @@ class OSSClient;
 namespace webdisk {
 namespace storage {
 
-class OssBackupStorage final : public BackupStorage {
+class OssBackupStorage {
 public:
     static common::Result<std::unique_ptr<OssBackupStorage>> create(const config::Config::Oss& config);
 
-    ~OssBackupStorage() override;
+    ~OssBackupStorage();
 
-    common::Result<void> backup_file(const std::string& hashcode, const std::filesystem::path& local_path) override;
+    common::Result<void> backup_file(const std::string& hashcode, const std::filesystem::path& local_path);
 
 private:
     OssBackupStorage(std::string bucket, std::string key_prefix, std::unique_ptr<alibabacloud::oss2::OSSClient> client);

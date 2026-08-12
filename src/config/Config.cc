@@ -83,14 +83,16 @@ common::Result<Config> Config::load(const std::filesystem::path& path) {
     auto max_file_size = parse_unsigned(reader.Get("storage", "max_file_size_bytes", "104857600"),
                                         "storage.max_file_size_bytes", 1, std::numeric_limits<uint64_t>::max());
     auto oss_enabled = parse_boolean(reader.Get("oss", "enabled", "false"), "oss.enabled");
+    auto rabbitmq_enabled = parse_boolean(reader.Get("rabbitmq", "enabled", "false"), "rabbitmq.enabled");
+    auto rabbitmq_port = parse_unsigned(reader.Get("rabbitmq", "port", "5672"), "rabbitmq.port", 1, 65535);
     auto log_console = parse_boolean(reader.Get("log", "console", "true"), "log.console");
     auto log_roll_size = parse_unsigned(reader.Get("log", "roll_size", "100000000"), "log.roll_size", 1,
                                         static_cast<uint64_t>(std::numeric_limits<size_t>::max()));
     auto log_roll_files = parse_unsigned(reader.Get("log", "roll_files", "5"), "log.roll_files", 1, 1000);
 
     const common::Result<uint64_t>* numeric_values[] = {
-        &server_port,         &database_port, &retry_max,     &token_ttl,
-        &password_iterations, &max_file_size, &log_roll_size, &log_roll_files,
+        &server_port,   &database_port, &retry_max,     &token_ttl,      &password_iterations,
+        &max_file_size, &rabbitmq_port, &log_roll_size, &log_roll_files,
     };
     for (const auto* result : numeric_values) {
         if (!result->ok()) {
@@ -101,8 +103,10 @@ common::Result<Config> Config::load(const std::filesystem::path& path) {
         return common::Result<Config>::failure(log_console.error().status_code, log_console.error().message);
     }
     if (!oss_enabled.ok()) {
-        return common::Result<Config>::failure(oss_enabled.error().status_code,
-                                               oss_enabled.error().message);
+        return common::Result<Config>::failure(oss_enabled.error().status_code, oss_enabled.error().message);
+    }
+    if (!rabbitmq_enabled.ok()) {
+        return common::Result<Config>::failure(rabbitmq_enabled.error().status_code, rabbitmq_enabled.error().message);
     }
     config.server.port = static_cast<uint16_t>(server_port.value());
     // 项目约定从项目根目录启动，所有相对路径都以进程启动工作目录为基准。
@@ -128,11 +132,23 @@ common::Result<Config> Config::load(const std::filesystem::path& path) {
     config.oss.bucket = reader.Get("oss", "bucket", "");
     config.oss.key_prefix = reader.Get("oss", "key_prefix", "backup/sha256/");
 
+    config.rabbitmq.enabled = rabbitmq_enabled.value();
+    config.rabbitmq.host = reader.Get("rabbitmq", "host", "127.0.0.1");
+    config.rabbitmq.port = static_cast<uint16_t>(rabbitmq_port.value());
+    config.rabbitmq.username = reader.Get("rabbitmq", "username", "");
+    config.rabbitmq.password = reader.Get("rabbitmq", "password", "");
+    config.rabbitmq.vhost = reader.Get("rabbitmq", "vhost", "/");
+    config.rabbitmq.queue = reader.Get("rabbitmq", "queue", "webdisk.oss.backup.v1");
+
     config.log.level = reader.Get("log", "level", "info");
     config.log.console = log_console.value();
     const std::string log_file = reader.Get("log", "file", "./log/server.log");
     if (!log_file.empty()) {
         config.log.file = resolve_path(working_dir, log_file);
+    }
+    const std::string worker_log_file = reader.Get("log", "worker_file", "./log/cloud_disk_backup_worker.log");
+    if (!worker_log_file.empty()) {
+        config.log.worker_file = resolve_path(working_dir, worker_log_file);
     }
     config.log.roll_size = log_roll_size.value();
     config.log.roll_files = static_cast<size_t>(log_roll_files.value());
@@ -153,15 +169,27 @@ common::Result<Config> Config::load(const std::filesystem::path& path) {
                 500, "oss.region and oss.bucket must not be empty when OSS backup is enabled");
         }
         if (config.oss.key_prefix.empty() || config.oss.key_prefix.front() == '/') {
-            return common::Result<Config>::failure(
-                500, "oss.key_prefix must be a non-empty relative object prefix");
+            return common::Result<Config>::failure(500, "oss.key_prefix must be a non-empty relative object prefix");
         }
         if (config.oss.key_prefix.back() != '/') {
             config.oss.key_prefix.push_back('/');
         }
     }
+    if (config.oss.enabled != config.rabbitmq.enabled) {
+        return common::Result<Config>::failure(500,
+                                               "oss.enabled and rabbitmq.enabled must be enabled or disabled together");
+    }
+    if (config.rabbitmq.enabled &&
+        (config.rabbitmq.host.empty() || config.rabbitmq.username.empty() || config.rabbitmq.password.empty() ||
+         config.rabbitmq.vhost.empty() || config.rabbitmq.queue.empty())) {
+        return common::Result<Config>::failure(
+            500, "rabbitmq.host, username, password, vhost, and queue must not be empty when RabbitMQ is enabled");
+    }
     if (!config.log.console && config.log.file.empty()) {
         return common::Result<Config>::failure(500, "log.console and log.file cannot both be disabled");
+    }
+    if (config.rabbitmq.enabled && !config.log.console && config.log.worker_file.empty()) {
+        return common::Result<Config>::failure(500, "log.console and log.worker_file cannot both be disabled");
     }
 
     return common::Result<Config>::success(std::move(config));
@@ -177,11 +205,15 @@ std::string Config::to_string() const {
            << ", password_iterations=" << auth.password_iterations
            << ", jwt_secret_configured=" << !auth.jwt_secret.empty() << "} "
            << "storage{root=" << storage.root.string() << ", max_file_size=" << storage.max_file_size << "} "
-           << "oss{enabled=" << oss.enabled << ", region=" << oss.region
-           << ", bucket=" << oss.bucket << ", key_prefix=" << oss.key_prefix
-           << ", credentials_provider=environment} "
+           << "oss{enabled=" << oss.enabled << ", region=" << oss.region << ", bucket=" << oss.bucket
+           << ", key_prefix=" << oss.key_prefix << ", credentials_provider=environment} "
+           << "rabbitmq{enabled=" << rabbitmq.enabled << ", host=" << rabbitmq.host << ", port=" << rabbitmq.port
+           << ", vhost=" << rabbitmq.vhost << ", queue=" << rabbitmq.queue
+           << ", username_configured=" << !rabbitmq.username.empty()
+           << ", password_configured=" << !rabbitmq.password.empty() << "} "
            << "log{level=" << log.level << ", console=" << log.console
            << ", file=" << (log.file.empty() ? "disabled" : log.file.string()) << ", roll_size=" << log.roll_size
+           << ", worker_file=" << (log.worker_file.empty() ? "disabled" : log.worker_file.string())
            << ", roll_files=" << log.roll_files << "}";
     return output.str();
 }
