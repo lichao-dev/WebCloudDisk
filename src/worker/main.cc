@@ -51,8 +51,8 @@ int main(int argc, char* argv[]) {
     }
     LOG_INFO("Configuration: {}", config.value().to_string());
 
-    if (!config.value().oss.enabled || !config.value().rabbitmq.enabled) {
-        LOG_ERROR("Backup worker requires both OSS and RabbitMQ to be enabled");
+    if (!config.value().oss.enabled) {
+        LOG_ERROR("Backup worker requires OSS backup to be enabled");
         webdisk::log::Log::shutdown();
         return 1;
     }

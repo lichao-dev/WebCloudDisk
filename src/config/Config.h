@@ -48,7 +48,6 @@ public:
     };
 
     struct RabbitMq {
-        bool enabled{false}; // 是否发布和消费 OSS 备份任务
         std::string host{"127.0.0.1"};
         uint16_t port{5672};
         std::string username;

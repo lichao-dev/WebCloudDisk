@@ -41,7 +41,7 @@ int main(int argc, char* argv[]) {
     }
 
     auto config = webdisk::config::Config::load(config_path.value());
-    if (!config || !config.value().rabbitmq.enabled) {
+    if (!config || !config.value().oss.enabled) {
         std::cerr << "RabbitMQ smoke-test configuration is unavailable\n";
         return 1;
     }

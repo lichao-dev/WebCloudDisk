@@ -37,9 +37,9 @@ BackupWorker::~BackupWorker() = default;
 common::Result<std::unique_ptr<BackupWorker>> BackupWorker::create(const config::Config& config,
                                                                    storage::FileStorage& file_storage,
                                                                    storage::OssBackupStorage& oss_backup_storage) {
-    if (!config.oss.enabled || !config.rabbitmq.enabled) {
+    if (!config.oss.enabled) {
         return common::Result<std::unique_ptr<BackupWorker>>::failure(
-            500, "OSS backup and RabbitMQ must be enabled for the backup worker");
+            500, "OSS backup must be enabled for the backup worker");
     }
 
     try {

@@ -2,7 +2,7 @@
 
 > 更新时间：2026-08-12
 > 当前项目路径：`/Users/lichao/workspace/projects/WebCloudDisk`
-> 目标：让新的 Codex 对话先阅读本文件，再基于当前 checkout 和未提交修改继续工作。
+> 目标：让新的 Codex 对话先阅读本文件，再基于当前 checkout 和实时 Git 状态继续工作。
 
 ## 1. 当前阶段与范围
 
@@ -29,9 +29,9 @@ WebCloudDisk 是一个 C++17 Web 网盘项目。第三期 RabbitMQ 异步 OSS �
 ## 2. 当前 Git 与工作区状态
 
 - 当前分支：`main`。
-- 当前基线提交：`ca484b7 Integrate RabbitMQ client dependencies`。
-- 当前工作区正在实现 RabbitMQ 异步 OSS 备份第一阶段；具体状态始终以实时 `git status` 和 `git diff` 为准。
-- OSS 配置、客户端封装、同步上传、真实 Bucket 冒烟和 HTTP 上传链路均已完成验证。
+- 当前基线提交：`e0336ec Implement RabbitMQ asynchronous OSS backup`。
+- RabbitMQ 异步 OSS 备份第一阶段已提交；后续未提交修改的具体状态始终以实时 `git status` 和 `git diff` 为准。
+- OSS 配置、RabbitMQ 发布与消费、真实 Broker 冒烟、真实 Bucket 备份和 HTTP 上传链路均已完成验证。
 - 未提交修改同样视为用户当前工作成果；不要覆盖、还原或重置。
 - `conf/server.ini`、`log/`、`upload/`、`build/` 和 `compile_commands.json` 已在 `.gitignore` 中忽略。
 - `conf/server.ini` 含数据库密码和 JWT 密钥，不要打印、提交或写入文档。
@@ -342,8 +342,8 @@ MySQL 错误处理先区分 Workflow 传输失败与 MySQL ERR Packet。用户�
 - `[database]`：host、port、username、password、database、retry_max。
 - `[auth]`：jwt_secret、jwt_issuer、token_ttl_seconds、password_iterations。
 - `[storage]`：root、max_file_size_bytes。
-- `[rabbitmq]`：enabled、host、port、username、password、vhost、queue。
-- `[oss]` 与 `[rabbitmq]` 必须同时启用或关闭；RabbitMQ 用户名和密码不会写入配置摘要。
+- `[oss]`：enabled、region、bucket、key_prefix；`enabled` 是整条 RabbitMQ 异步 OSS 备份链路的唯一开关。
+- `[rabbitmq]`：host、port、username、password、vhost、queue；启用 OSS 备份时必须配置，用户名和密码不会写入配置摘要。
 - `[log]`：level、console、file、roll_size、roll_files。
 - `[log].worker_file`：Worker 独立日志文件，避免两个进程轮转同一文件。
 
@@ -424,18 +424,25 @@ ctest --test-dir build --output-on-failure
 - `cloud_disk_rabbitmq_smoke_test` 已通过真实 Broker 验证正式发布器、持久化消息、消费和手动 ACK；它直接消费并校验消息，不访问 OSS，成功后删除独立临时队列。正式 Worker 由真实 OSS 端到端验收覆盖。
 - 经用户明确授权，`cloud_disk_rabbitmq_oss_smoke_producer` 已把固定测试内容写入本地主存储并向业务队列发布任务；正式 Worker 成功上传当前配置的真实 OSS Bucket，随后手动 ACK，队列恢复为零待处理、零未确认消息，并完成 `Ctrl+C` 正常停止。授权约定要求本地文件和 OSS 对象作为测试备份保留。
 
-当前待处理事项：
+第二阶段：消费者可靠性
+
+1. 增加延迟重试、最大重试次数和 DLQ，替换当前 OSS 失败后保留消息未确认并退出 Worker 的第一阶段行为。
+2. 增加 RabbitMQ 断线重连和退避，避免短暂断线直接终止 Worker。
+3. 增加运行指标，并增加覆盖重连、重试和 DLQ 的自动化真实 Broker 集成测试。
+
+第三阶段：生产者可靠性
 
 1. 增加 Transactional Outbox，消除数据库成功但消息发布失败的任务丢失窗口。
-2. 增加延迟重试、最大重试次数和 DLQ，替换当前 OSS 失败后保留消息未确认并退出 Worker 的第一阶段行为。
-3. 增加 RabbitMQ 断线重连、运行指标和自动化真实 Broker 集成测试。
-4. 后续实现本地文件缺失时从 OSS 恢复的容灾闭环。
+2. 增加 Outbox 投递与投递结果记录，支持 Broker 恢复后继续投递。
+3. 增加补偿清理和集成测试，覆盖数据库已提交、Broker 不可用以及恢复后补发的完整边界。
+
+不纳入上述两个 RabbitMQ 可靠性阶段的后续事项：实现本地文件缺失时从 OSS 恢复的容灾闭环。
 
 macOS 默认大小写不敏感文件系统上，Workflow 源码中的 `BUILD` 文件会与 `build` 目录冲突；重建第三方 Workflow 时使用 `third_party/workflow/build-macos` 作为构建目录。
 
 ## 15. 建议下次 Codex 的开始顺序
 
 1. 先阅读本文件、`README.md`、需求主文档，再查看真实的 `git status`、最近提交和当前 `git diff`；不要只相信本文件的时间点快照。
-2. RabbitMQ 第一阶段已经实现；后续从 Outbox 和失败重试边界开始，不要重新引入同步 OSS 上传。
+2. RabbitMQ 第一阶段已经实现；下一步从第二阶段的失败重试、DLQ 和断线重连开始，不要重新引入同步 OSS 上传。
 3. 保留第 2 节中的全部未提交成果，只修改本次任务明确涉及的文件。
 4. 提交前运行 `git diff --check`、`cmake --build build --parallel` 和 `ctest --test-dir build --output-on-failure`。

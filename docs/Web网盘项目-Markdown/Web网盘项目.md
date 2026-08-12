@@ -1320,4 +1320,514 @@ cout << envelope->Message()->Body() << endl;
 }
 ```
 
+---
+
+# 5 第四期：微服务架构
+
+前三期我们实现的服务器架构如下所示，它是一个单体应用7：
+
+*Figure 1: 单体应用*
+
+这一期，我们会将前面的单体应用改造成微服务应用8，以避免单体应用的一些缺点和局限性，如下图所示：
+
+```bash
+7单体应用：简单来说，就是把一个软件项目的所有功能模块（比如用户管理、订单处理、商品展示、数据库访问等）都打包成一个独立的、不可分割的整
+```
+
+体来开发、部署和运行。 8微服务应用：就是一种将单个大型应用程序拆分为一组小型、独立服务的架构方式。
+
+![单体应用架构图](/Users/lichao/Downloads/Web网盘项目-Markdown/Web网盘项目.assets/monolith-architecture.png)
+
+*Figure 2: 微服务应用*
+
+## 5.1 单体应用v.s. 微服务应用
+
+### 单体应用
+
+优点：
+
+1. 部署简单：只需要打包一个应用程序并部署到服务器即可。
+
+2. 测试相对容易：启动应用后，就可以进行完整的集成测试，因为所有组件都在一个进程中。
+
+3. 性能表现可能更好：模块间通过函数调用进行通信，速度极快，没有网络延迟和序列化的开销。
+
+缺点：
+
+1. 代码复杂度高，维护困难：随着功能增加，代码库会变得巨大、臃肿且结构混乱，难以理解和修改。
+
+2. 技术栈僵化：整个应用必须使用相同的技术栈（语言、框架、库版本），很难甚至无法为特定任务引入更合适的新
+
+技术。
+
+3. 扩展性差：即使只有一个功能（如订单处理）面临高并发，你也必须复制整个应用程序的实例，无法只扩展那个特
+
+定功能。这导致资源利用效率低下，成本高昂。
+
+4. 可靠性低：任何一个模块中的一个微小bug 都可能导致整个应用程序崩溃。
+
+5. 交付和部署瓶颈：牵一发而动全身：任何微小的更改都需要重新构建和部署整个应用程序。随着团队规模扩大，协
+
+同工作、代码合并和部署会变得非常缓慢和高风险，无法实现敏捷交付。
+
+### 微服务应用
+
+优点：
+
+1. 高可维护性与可理解性：职责单一，每个服务都很小，只关注一个特定的业务功能，代码更清晰，更易于开发者理
+
+解和维护。
+
+2. 独立部署：服务可以独立开发、测试和部署。修复一个服务中的bug 或发布一个新功能，只需部署该服务本身，无
+
+需重建和部署整个应用，这大大加快了发布周期。
+
+3. 技术选型灵活：每个服务都可以使用最适合其需求的技术栈（编程语言、数据库等）。例如，AI 服务可以用Python，
+
+高性能计算服务可以用C++。
+
+4. 可扩展性极强：可以仅对那些需要更多资源的服务进行独立扩展。例如，在电商促销时，只扩展“订单服务”和“支
+
+付服务”，而“用户评论服务”保持不变。这极大地提高了资源利用率和成本效益。
+
+5. 故障隔离：一个服务的失败不会导致整个系统瘫痪。
+
+缺点：
+
+1. 分布式系统的复杂性。
+
+![微服务应用架构图](/Users/lichao/Downloads/Web网盘项目-Markdown/Web网盘项目.assets/microservices-architecture.png)
+
+2. 运维开销巨大。
+
+3. 网络和性能开销。
+
+4. 测试复杂度增加。
+
+## 5.2 Protobuf
+
+讲远程过程调用（RPC）之前，我们先来讲讲Protobuf。Protobuf 是一种数据交换格式，它解决了RPC 中最关键、最棘
+
+手的两个问题：数据的“编解码”和“接口规范定义”。
+
+### 简介
+
+Protobuf (Google Protocol Buffer) 是一种轻便高效的数据交换格式，它独立于语言和平台，并且支持扩展。Protobuf
+
+很适合做数据存储和RPC 的数据交换格式。使用Protobuf 内置的编译器protoc 可以自动生成C++, C#, Dart, Go, Java,
+
+```bash
+Kotlin, Objective-C, Python, Ruby, PHP 等多种语言的代码。
+```
+
+### 安装
+
+```bash
+# 安装编译Protobuf 所需的依赖工具
+sudo apt-get install automake autoconf libtool
+# 解压Protobuf 源代码包（tar: 归档文件，x: 解压，z: 通过gzip 解压，v: 显示详细过程，f: 指定文件）
+tar xzvf protobuf-3.20.1.tar.gz
+# 进入解压后的Protobuf 源代码目录
+cd protobuf-3.20.1
+# 运行自动生成脚本，该脚本会生成configure 配置文件
+./autogen.sh
+# 运行配置脚本：检查系统环境、依赖项，并生成Makefile
+./configure
+# 编译源代码（-j4 表示同时使用4 个CPU 核心并行编译，加快速度）
+make -j4
+# 安装编译好的Protobuf 到系统目录（通常为/usr/local/bin, /usr/local/lib 等）
+sudo make install
+# 更新系统的共享库缓存
+sudo ldconfig
+# 查看Protobuf 编译器版本号
+$ protoc --version
+```
+
+安装成功后，/usr/local/include目录下会多一个google/protobuf文件夹，里面放的是头文件。库文件则放在/usr/local/lib
+
+目录下。
+
+### 使用教程
+
+对Protobuf 有了一定的基本了解之后，接下来，我们看看该如何使用Protobuf。
+
+1. 创建.proto 文件，定义数据结构，如下所示：
+
+```protobuf
+syntax="proto3";
+package test;
+```
+
+```protobuf
+message Person {
+int32 id = 1;
+string name = 2;
+optional string email = 3;
+}
+```
+
+我们在上面的例子中定义了一个名为Person 的消息。定义消息的语法很简单，message 关键字后跟上消息的名称，之后
+
+在{} 中定义message 的字段，形式为：
+
+```protobuf
+message xxx {
+```
+
+字段规则类型名称= 字段编号;
+
+```bash
+...
+}
+// 字段规则：
+//
+required -> 字段只能也必须出现1 次(默认)
+//
+optional -> 字段可出现0 次或1 次
+//
+repeated -> 字段可出现任意多次（包括0）
+// 类型：int32、int64、sint32、sint64、string、32-bit ...
+```
+
+2. 使用protoc 编译.proto 文件：
+
+**protoc --cpp_out=./ Person.proto**
+
+```bash
+# Usage: protoc [OPTION] PROTO_FILES
+# OPTIONS:
 #
+--cpp_out=OUT_DIR
+指定在哪个目录下生成C++的头文件和源文件
+```
+
+生成的头文件和源文件分别为：Person.pb.h 和Person.pb.cc。这些文件中定义和实现了Person 消息的各个方法，其
+
+中就有各个字段的getter 和setter 方法：
+
+```bash
+namespace test {
+class Person final :
+...
+int32_t id() const;
+void set_id(int32_t value);
+...
+const std::string& name() const;
+template <typename ArgT0, typename... ArgT>
+void set_name(ArgT0&& arg0, ArgT... args);
+...
+bool has_email() const;
+const std::string& email() const;
+template<typename ArgT0, typename... ArgT>
+void set_email(ArgT0&& arg0, ArgT... args);
+...
+};
+}; // end of namespace `test`
+```
+
+3. 编写业务代码
+
+这里我们演示一下如何使用Protobuf 进行序列化和反序列化：
+
+**protobuf_serialize.cc**
+
+```cpp
+#include "Person.pb.h"
+#include <fstream>
+#include <iostream>
+#include <string>
+using namespace std;
+using namespace test;
+int main()
+{
+11
+Person p1;
+12
+p1.set_name("test");
+13
+p1.set_id(100);
+14
+p1.set_email("example@gmail.com");
+16
+// 序列化: 将C++中的结构体保存到二进制序列中
+17
+std::string output;
+18
+p1.SerializeToString(&output); // 序列化
+19
+cout << "size: " << output.size() << endl;
+20
+cout << "output: " << output << endl;
+22
+// 反序列化
+23
+Person p2;
+24
+cout << "p2.name: " << p2.name()
+25
+<< ", p2.id: " << p2.id()
+26
+<< ", p2.email: " << p2.email() << endl;
+28
+p2.ParseFromString(output); // 反序列化
+29
+cout << "p2.name: " << p2.name()
+30
+<< ", p2.id: " << p2.id()
+31
+<< ", p2.email: " << p2.email() << endl;
+}
+```
+
+Protobuf 编码*
+
+我们通过一个具体的例子，来看看Protobuf 是如何编码的，.proto 文件还是采用上面的Person.proto。
+
+**protobuf_code.cc**
+
+```cpp
+#include "Person.pb.h"
+#include <bitset>
+#include <iostream>
+using namespace std;
+using namespace test;
+int main()
+{
+10
+Person p;
+11
+p.set_id(100);
+12
+p.set_name("aaa");
+```
+
+```bash
+14
+string data;
+15
+p.SerializeToString(&data); // 序列化
+17
+cout << "size: " << data.size() << endl;
+19
+for (auto c : data) {
+20
+cout << bitset<8>(c) << " ";
+21
+}
+22
+cout << endl;
+}
+```
+
+运行结果如下：
+
+```bash
+peanut@wd:$ g++ protobuf_code.cc Person.pb.cc -lprotobuf
+peanut@wd:$ ./a.out
+size: 7
+01100100 00010010 00000011 01100001 01100001 01100001
+```
+
+解析：
+
+```bash
+00001:
+序号: 1
+000:
+数据编码格式(WireType): Varint
+01100100:
+值: 100
+00010:
+序号: 2
+010:
+数据编码格式(WireType): Length-delimited
+00000011:
+长度: 3
+01100001:
+值: 97('a')
+01100001:
+值: 97('a')
+01100001:
+值: 97('a')
+```
+
+Protobuf 的数据编码格式有6 种，其中两种已标记为废弃：
+
+Wire Type 名称 描述
+
+0 Varint 可变长整数（int32, int64, uint32, uint64, sint32, sint64, bool, enum）
+
+1 64-bit 固定64 位（fixed64, sfixed64, double）
+
+2 Length-delimited 长度前缀字段（string, bytes, 嵌套message, packed repeated fields）
+
+3 Start group group 的开始（已废弃）
+
+4 End group group 的结束（已废弃）
+
+5 32-bit 固定32 位（fixed32, sfixed32, float）
+
+## 5.3 sRPC
+
+### 简介
+
+RPC（Remote Procedure Call，远程过程调用）是一种计算机通信协议。它允许一个程序（客户端）像调用本地函数一样，
+
+直接调用另一个地址空间（通常是另一台机器上的程序）中的函数或方法，而无需显式编写网络通信的细节。
+
+简单来说：让调用远程服务像调用本地方法一样简单。而sRPC 是由搜狗公司开发并开源，基于Workflow 异步引擎构建
+
+的一个RPC 框架。
+
+### 原理
+
+理解RPC（远程过程调用）的关键，在于理解它如何让“调用远程服务”变得像“调用本地函数”一样自然。
+
+*Figure 3: RPC 流程图*
+
+RPC 调用通常包含以下五个核心步骤：
+
+1. 客户端调用远程方法— remoteAdd(3, 5)
+
+客户端代理拦截了这个调用。它负责把函数名remoteAdd 和参数3、5 按照某种约定的协议（如Protobuf、JSON）
+
+序列化成一条二进制数据流。
+
+2. 网络传输
+
+客户端代理通过套接字把序列化后的数据传输到服务器。
+
+3. 服务端接收与反序列化
+
+服务端接收数据，并反序列化，从二进制数据中解析出函数名remoteAdd 和参数3、5。
+
+4. 服务端调用函数并返回结果
+
+服务器根据解析得到的函数名，调用相应的函数add，得到结果8。并把结果序列化，通过网络传给客户端。
+
+5. 客户端接收结果
+
+客户端接收服务器返回的二进制数据，并反序列化得到结果。
+
+上面整个流程对程序员来说是完全透明的，就像在调用本地函数一样。
+
+### 安装
+
+```bash
+# 安装依赖
+sudo apt install liblz4-dev
+sudo apt install libsnappy-dev
+# 安装srpc
+tar xvzf srpc-0.10.2.tar.gz
+cd srpc-0.10.2
+mkdir build && cd build
+cmake ..
+make
+sudo make install
+sudo ldconfig
+```
+
+安装成功后，头文件放在/usr/local/include/srpc 目录下，库文件则会安装到/usr/local/lib 目录下，并且会生成一
+
+个可执行程序（生成代码的工具）srpc_generator。
+
+![RPC 流程图](/Users/lichao/Downloads/Web网盘项目-Markdown/Web网盘项目.assets/rpc-flow.png)
+
+### 使用教程
+
+安装好srpc 之后，接下来我们来看看该如何使用srpc：
+
+1. 编写IDL (Interface Definition Language) 文件
+
+**example.proto**
+
+```protobuf
+syntax = "proto3";
+// proto2 和proto3 都可以, 推荐使用proto3
+// 定义请求消息
+message EchoRequest {
+5
+string message = 1;
+6
+string name = 2;
+};
+// 定义响应消息
+message EchoResponse {
+10
+string message = 1;
+}
+// 定义一个名字为Example 的服务
+service Example {
+15
+// 定义一个名字叫Echo 的rpc
+16
+rpc Echo(EchoRequest) returns (EchoResponse);
+17
+// 一个service（服务）中，可以定义多个rpc 方法...
+}
+```
+
+2. 使用protoc 和srpc_generator 生成代码
+
+**protoc --cpp_out=./ example.proto**
+
+上面命令会生成两个文件，分别为：example.pb.h 和example.pb.cc，里面包含IDL 文件中message 的定义和实现。
+
+```bash
+srpc_generator protobuf example.proto ./
+# Usage:
+#
+srpc_generator [protobuf|thrift] <idl_file> <output_dir>
+```
+
+上面命令会生成三个文件，分别为：client.pb_skeleton.cc，server.pb_skeleton.cc，example.srpc.h。其中
+
+```bash
+client.pb_skeleton.cc 和server.pb_skeleton.cc 分别为客户端和服务端的骨架代码（只提供骨架，还需要程序员修
+```
+
+改）。example.srpc.h 包含了IDL 文件中service 内容的定义：
+
+```bash
+...
+namespace Example
+{
+class Service : public srpc::RPCService
+{
+public:
+// 纯虚函数: 需要派生类重写（RPC 服务器实现）
+virtual void Echo(EchoRequest *request, EchoResponse *response,
+srpc::RPCContext *ctx) = 0;
+public:
+Service();
+```
+
+```bash
+};
+using EchoDone = std::function<void (EchoResponse *, srpc::RPCContext *)>;
+class SRPCClient : public srpc::SRPCClient
+{
+public:
+void Echo(const EchoRequest *req, EchoDone done);
+// 异步
+void Echo(const EchoRequest *req, EchoResponse *resp, srpc::RPCSyncContext *sync_ctx);
+// 同步
+WFFuture<std::pair<EchoResponse, srpc::RPCSyncContext>> async_Echo(const EchoRequest *req);
+public:
+SRPCClient(const char *host, unsigned short port);
+SRPCClient(const struct srpc::RPCClientParams *params);
+public:
+srpc::SRPCClientTask *create_Echo_task(EchoDone done);
+// 与workflow 集成用的
+};
+}
+// end of namespace `Example`
+```
+
+3. 修改客户端和服务端的骨架代码，实现具体的业务逻辑。
+
+详细代码见：examples/srpc/目录
+
+需要链接的库
+
+链接时，需要加上-lsrpc -llz4 -lsnappy -lprotobuf -lworkflow

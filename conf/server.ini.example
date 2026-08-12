@@ -55,8 +55,6 @@ key_prefix=backup/sha256/
 ; 以及可选的 OSS_SESSION_TOKEN 环境变量提供
 
 [rabbitmq]
-; 异步 OSS 备份开关，必须与 oss.enabled 同时启用或关闭
-enabled=false
 host=127.0.0.1
 port=5672
 username=change_me

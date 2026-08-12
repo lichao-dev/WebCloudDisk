@@ -83,7 +83,6 @@ common::Result<Config> Config::load(const std::filesystem::path& path) {
     auto max_file_size = parse_unsigned(reader.Get("storage", "max_file_size_bytes", "104857600"),
                                         "storage.max_file_size_bytes", 1, std::numeric_limits<uint64_t>::max());
     auto oss_enabled = parse_boolean(reader.Get("oss", "enabled", "false"), "oss.enabled");
-    auto rabbitmq_enabled = parse_boolean(reader.Get("rabbitmq", "enabled", "false"), "rabbitmq.enabled");
     auto rabbitmq_port = parse_unsigned(reader.Get("rabbitmq", "port", "5672"), "rabbitmq.port", 1, 65535);
     auto log_console = parse_boolean(reader.Get("log", "console", "true"), "log.console");
     auto log_roll_size = parse_unsigned(reader.Get("log", "roll_size", "100000000"), "log.roll_size", 1,
@@ -104,9 +103,6 @@ common::Result<Config> Config::load(const std::filesystem::path& path) {
     }
     if (!oss_enabled.ok()) {
         return common::Result<Config>::failure(oss_enabled.error().status_code, oss_enabled.error().message);
-    }
-    if (!rabbitmq_enabled.ok()) {
-        return common::Result<Config>::failure(rabbitmq_enabled.error().status_code, rabbitmq_enabled.error().message);
     }
     config.server.port = static_cast<uint16_t>(server_port.value());
     // 项目约定从项目根目录启动，所有相对路径都以进程启动工作目录为基准。
@@ -132,7 +128,6 @@ common::Result<Config> Config::load(const std::filesystem::path& path) {
     config.oss.bucket = reader.Get("oss", "bucket", "");
     config.oss.key_prefix = reader.Get("oss", "key_prefix", "backup/sha256/");
 
-    config.rabbitmq.enabled = rabbitmq_enabled.value();
     config.rabbitmq.host = reader.Get("rabbitmq", "host", "127.0.0.1");
     config.rabbitmq.port = static_cast<uint16_t>(rabbitmq_port.value());
     config.rabbitmq.username = reader.Get("rabbitmq", "username", "");
@@ -175,20 +170,16 @@ common::Result<Config> Config::load(const std::filesystem::path& path) {
             config.oss.key_prefix.push_back('/');
         }
     }
-    if (config.oss.enabled != config.rabbitmq.enabled) {
-        return common::Result<Config>::failure(500,
-                                               "oss.enabled and rabbitmq.enabled must be enabled or disabled together");
-    }
-    if (config.rabbitmq.enabled &&
+    if (config.oss.enabled &&
         (config.rabbitmq.host.empty() || config.rabbitmq.username.empty() || config.rabbitmq.password.empty() ||
          config.rabbitmq.vhost.empty() || config.rabbitmq.queue.empty())) {
         return common::Result<Config>::failure(
-            500, "rabbitmq.host, username, password, vhost, and queue must not be empty when RabbitMQ is enabled");
+            500, "rabbitmq.host, username, password, vhost, and queue must not be empty when OSS backup is enabled");
     }
     if (!config.log.console && config.log.file.empty()) {
         return common::Result<Config>::failure(500, "log.console and log.file cannot both be disabled");
     }
-    if (config.rabbitmq.enabled && !config.log.console && config.log.worker_file.empty()) {
+    if (config.oss.enabled && !config.log.console && config.log.worker_file.empty()) {
         return common::Result<Config>::failure(500, "log.console and log.worker_file cannot both be disabled");
     }
 
@@ -207,8 +198,8 @@ std::string Config::to_string() const {
            << "storage{root=" << storage.root.string() << ", max_file_size=" << storage.max_file_size << "} "
            << "oss{enabled=" << oss.enabled << ", region=" << oss.region << ", bucket=" << oss.bucket
            << ", key_prefix=" << oss.key_prefix << ", credentials_provider=environment} "
-           << "rabbitmq{enabled=" << rabbitmq.enabled << ", host=" << rabbitmq.host << ", port=" << rabbitmq.port
-           << ", vhost=" << rabbitmq.vhost << ", queue=" << rabbitmq.queue
+           << "rabbitmq{host=" << rabbitmq.host << ", port=" << rabbitmq.port << ", vhost=" << rabbitmq.vhost
+           << ", queue=" << rabbitmq.queue
            << ", username_configured=" << !rabbitmq.username.empty()
            << ", password_configured=" << !rabbitmq.password.empty() << "} "
            << "log{level=" << log.level << ", console=" << log.console

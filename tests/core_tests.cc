@@ -66,7 +66,7 @@ void test_config(const std::filesystem::path& root) {
               "[storage]\nroot=./test-upload\nmax_file_size_bytes=1024\n"
               "[oss]\nenabled=true\nregion=cn-hangzhou\nbucket=test-backup-bucket\n"
               "key_prefix=test/backup\n"
-              "[rabbitmq]\nenabled=true\nhost=127.0.0.1\nport=5672\nusername=test-user\npassword=test-password\n"
+              "[rabbitmq]\nhost=127.0.0.1\nport=5672\nusername=test-user\npassword=test-password\n"
               "vhost=/test\nqueue=test.oss.backup.v1\n"
               "[log]\nlevel=info\nconsole=false\nfile=./test-log/server.log\nworker_file=./test-log/worker.log\n"
               "roll_size=2048\nroll_files=3\n";
@@ -82,7 +82,6 @@ void test_config(const std::filesystem::path& root) {
     assert(config.value().oss.region == "cn-hangzhou");
     assert(config.value().oss.bucket == "test-backup-bucket");
     assert(config.value().oss.key_prefix == "test/backup/");
-    assert(config.value().rabbitmq.enabled);
     assert(config.value().rabbitmq.host == "127.0.0.1");
     assert(config.value().rabbitmq.port == 5672);
     assert(config.value().rabbitmq.username == "test-user");
@@ -113,17 +112,16 @@ void test_config(const std::filesystem::path& root) {
     auto local_only_config = webdisk::config::Config::load(path);
     assert(local_only_config);
     assert(!local_only_config.value().oss.enabled);
-    assert(!local_only_config.value().rabbitmq.enabled);
 
-    std::ofstream mismatched_output(path);
-    mismatched_output << "[database]\nhost=127.0.0.1\nusername=test\ndatabase=CloudDisk\n"
-                         "[auth]\njwt_secret=01234567890123456789012345678901\n"
-                         "[oss]\nenabled=true\nregion=cn-hangzhou\nbucket=test-backup-bucket\n";
-    mismatched_output.close();
+    std::ofstream missing_rabbitmq_output(path);
+    missing_rabbitmq_output << "[database]\nhost=127.0.0.1\nusername=test\ndatabase=CloudDisk\n"
+                               "[auth]\njwt_secret=01234567890123456789012345678901\n"
+                               "[oss]\nenabled=true\nregion=cn-hangzhou\nbucket=test-backup-bucket\n";
+    missing_rabbitmq_output.close();
 
-    auto mismatched_config = webdisk::config::Config::load(path);
-    assert(!mismatched_config);
-    assert(mismatched_config.error().message.find("enabled") != std::string::npos);
+    auto missing_rabbitmq_config = webdisk::config::Config::load(path);
+    assert(!missing_rabbitmq_config);
+    assert(missing_rabbitmq_config.error().message.find("rabbitmq.host") != std::string::npos);
 }
 
 void test_backup_task_message() {
@@ -232,7 +230,6 @@ void test_logging(const std::filesystem::path& root) {
     app_config.oss.enabled = true;
     app_config.oss.region = "cn-hangzhou";
     app_config.oss.bucket = "test-backup-bucket";
-    app_config.rabbitmq.enabled = true;
     app_config.rabbitmq.username = "private-rabbitmq-user";
     app_config.rabbitmq.password = "private-rabbitmq-password";
     const std::string config_text = app_config.to_string();
@@ -254,7 +251,7 @@ void test_logging(const std::filesystem::path& root) {
     assert(content.find("jwt_secret_configured=true") != std::string::npos);
     assert(content.find("oss{enabled=true") != std::string::npos);
     assert(content.find("credentials_provider=environment") != std::string::npos);
-    assert(content.find("rabbitmq{enabled=true") != std::string::npos);
+    assert(content.find("rabbitmq{host=") != std::string::npos);
     assert(content.find("username_configured=true") != std::string::npos);
     assert(content.find("password_configured=true") != std::string::npos);
     assert(content.find("private-db-user") == std::string::npos);
