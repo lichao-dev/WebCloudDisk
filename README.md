@@ -2,6 +2,8 @@
 
 WebCloudDisk 是一个使用 C++17 开发的 Web 网盘后端。第四期采用一个 wfrest HTTP API 网关和两个基于
 sRPC/Protobuf 的后端服务，实现用户认证、本地文件上传、查询和下载，并使用阿里云 OSS 提供可选的容灾备份。
+第五期已经接入 Consul：两个 RPC 服务支持注册、TCP 健康检查和停止时注销；网关会查询 `passing` 实例，简单
+轮询选择端点，并按所选地址创建本次 sRPC 调用。
 
 > 本地磁盘始终是主存储；启用 OSS 与 RabbitMQ 后，Web 服务发布备份任务，独立 Worker 异步上传 OSS。文件删除和文件分享等功能留到后续阶段扩展。
 
@@ -24,6 +26,7 @@ sRPC/Protobuf 的后端服务，实现用户认证、本地文件上传、查询
 | 语言与构建 | C++17、CMake |
 | HTTP 与异步任务 | wfrest、Workflow |
 | RPC 与接口定义 | sRPC 0.10.4、Protobuf |
+| 服务注册与发现 | Consul 2.0.3、Workflow `WFConsulClient` |
 | 数据库 | MySQL 8.0 |
 | 配置与 JSON | inih、nlohmann/json |
 | 认证与安全 | jwt-cpp、OpenSSL、PBKDF2-HMAC-SHA256、SHA-256 |
@@ -43,6 +46,7 @@ WebCloudDisk/
 │   ├── common/     # 通用返回值类型
 │   ├── config/     # INI 配置加载和校验
 │   ├── database/   # Workflow MySQL 客户端封装
+│   ├── discovery/  # Consul 服务注册、健康实例发现和轮询选择
 │   ├── file_service/ # 文件 RPC 服务进程入口
 │   ├── gateway/    # HTTP API 网关
 │   ├── http/       # 网关使用的认证中间件和统一响应构造
@@ -63,6 +67,24 @@ WebCloudDisk/
 
 第四期主要调用方向是：`HTTP -> API Gateway -> sRPC -> User/File Service -> Repository / Storage`。JWT 在网关
 校验，用户服务负责注册、登录和用户查询，文件服务负责列表、上传、下载以及第一阶段 RabbitMQ 备份任务发布。
+
+第五期当前完整流程：
+
+```text
+User/File RPC Service 启动
+  ↓
+注册到 Consul，并配置 TCP 健康检查
+  ↓
+Consul 标记 passing 实例
+  ↓
+ConsulServiceDiscovery 查询并转换健康端点
+  ↓
+RoundRobinEndpointSelector 轮询选择实例
+  ↓
+网关按所选 host:port 创建本次 sRPC 调用
+```
+
+用户服务和文件服务分别维护轮询序号，彼此的请求数量不会影响对方的实例选择顺序。
 
 ## 准备环境
 
@@ -108,9 +130,45 @@ cp conf/server.ini.example conf/server.ini
 - `[auth]` 中的 JWT 密钥；生产环境应使用长度不少于 32 字符的随机密钥
 - 需要 OSS 异步备份时，同时启用 `[oss]` 和 `[rabbitmq]`，并配置 RabbitMQ 连接信息
 - 按实际环境调整存储目录、日志目录、端口和上传大小限制
-- `[rpc]` 默认让网关连接本机 `9601` 用户服务和 `9602` 文件服务；同机开发通常无需修改
+- `[rpc]` 配置两个 RPC 服务公布的地址、监听端口和网关请求超时；网关不再把这里的服务地址作为固定上游
+- `[consul]` 配置 HTTP API、服务名、TCP 健康检查地址和时间参数；Docker Desktop 环境默认使用
+  `health_check_host=host.docker.internal`
 
 `conf/server.ini` 包含敏感信息，已被 Git 忽略，不应提交。配置中的 `./www`、`./upload` 和 `./log/...` 等相对路径，都以程序启动时的工作目录为基准，因此项目约定从项目根目录启动服务。
+
+## 启动 macOS 单节点 Consul
+
+本地开发使用 Docker Desktop 运行单节点 Consul 2.0.3。首次创建容器时执行：
+
+```bash
+docker pull hashicorp/consul:2.0.3
+docker volume create consul_data
+docker run \
+  --name consul \
+  -d \
+  --restart unless-stopped \
+  -p 8500:8500 \
+  -p 8600:8600/udp \
+  -v consul_data:/consul/data \
+  hashicorp/consul:2.0.3 \
+  consul agent \
+  -server \
+  -ui \
+  -node=consul-server \
+  -bootstrap-expect=1 \
+  -client=0.0.0.0 \
+  -data-dir=/consul/data
+```
+
+后续只需执行 `docker start consul`。通过下面的命令检查成员，并访问
+[http://localhost:8500](http://localhost:8500) 查看 UI：
+
+```bash
+docker exec consul consul members
+```
+
+Consul Agent 运行在容器内，所以它不能通过 `127.0.0.1` 检查宿主机 RPC 端口。示例配置使用
+`host.docker.internal`；如果改为 macOS 原生 Consul，需要相应调整 `[consul].health_check_host`。
 
 ## 构建和测试
 
@@ -125,6 +183,8 @@ ctest --test-dir build --output-on-failure
 
 `cloud_disk_rabbitmq_client_tests` 只验证客户端静态库能够创建和读取 AMQP 消息，不连接 RabbitMQ Broker。
 `cloud_disk_rpc_protocol_tests` 验证用户和文件 Protobuf 消息，其中包括含 `\0` 字节的文件内容。
+`cloud_disk_core_tests` 中的 Consul 用例不访问网络，只验证实例地址转换、无效端点过滤、稳定排序和轮询行为；
+真实注册与健康检查仍需启动本地 Consul 和 RPC 服务观察。
 
 启动两个 RPC 服务后，可以执行不访问 MySQL 业务数据的连通性检查：
 
@@ -191,8 +251,8 @@ cmake --install build --prefix "$PWD"
 
 ## 启动和停止
 
-第四期开发模式需要从项目根目录启动三个服务进程。启用 OSS 备份时还要先确保 RabbitMQ Broker 已运行，并启动
-备份 Worker：
+第五期开发模式应先确保 Consul 正常运行，再从项目根目录启动两个 RPC 服务和 API 网关。启用 OSS 备份时还要
+确保 RabbitMQ Broker 已运行，并启动备份 Worker：
 
 ```bash
 ./bin/cloud_disk_user_service --config conf/server.ini
@@ -203,6 +263,12 @@ cmake --install build --prefix "$PWD"
 
 默认端口分别为 HTTP `9527`、用户 RPC `9601`、文件 RPC `9602`。所有进程都可通过 `Ctrl+C` 正常停止。Worker
 需要继承 `OSS_ACCESS_KEY_ID`、`OSS_ACCESS_KEY_SECRET` 和可选的 `OSS_SESSION_TOKEN` 环境变量。
+
+用户和文件 RPC 服务会在监听成功后注册到 Consul；注册失败时服务退出。正常停止时先注销 Consul 实例，再停止
+RPC Server。网关对每次请求查询 `passing` 实例并简单轮询；没有健康实例或 Consul 查询失败时返回 HTTP 503。
+
+本地联调已使用同一逻辑服务名启动两个用户服务实例：连续请求依次选择两个端口；注销其中一个实例后，后续请求
+继续调用剩余健康实例；全部实例注销后，网关返回 `503 No healthy service instance available`。
 
 ## HTTP API
 

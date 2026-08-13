@@ -201,6 +201,11 @@ add_library(cloud_disk_core STATIC
     # 数据库访问
     src/database/MySqlClient.cc
 
+    # 服务注册与发现
+    src/discovery/ConsulServiceDiscovery.cc
+    src/discovery/ConsulServiceRegistrar.cc
+    src/discovery/RoundRobinEndpointSelector.cc
+
     # HTTP 请求处理
     src/http/ApiResponse.cc
     src/http/AuthMiddleware.cc

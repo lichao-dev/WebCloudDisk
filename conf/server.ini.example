@@ -72,6 +72,24 @@ file_service_port=9602
 ; 等待 RPC 服务首次响应的超时时间；大文件传输需要预留足够时间
 request_timeout_ms=120000
 
+[consul]
+; Consul HTTP API；当前 macOS Docker 单节点通过宿主机 8500 端口访问
+url=http://127.0.0.1:8500
+datacenter=dc1
+; 本地未启用 ACL 时留空；启用后填写 Consul Token，日志只记录是否已配置
+token=
+; 同一服务的多个实例共享逻辑服务名，实例 ID 后续由服务名、公布地址和端口生成
+user_service_name=webdisk-user-service
+file_service_name=webdisk-file-service
+; Consul Agent 位于 Docker 容器内，检查宿主机 RPC 端口时不能使用 127.0.0.1
+; 如果以后改为 macOS 原生 Consul，可改成 127.0.0.1
+health_check_host=host.docker.internal
+retry_max=3
+health_check_interval_ms=5000
+health_check_timeout_ms=2000
+; 实例持续处于 critical 后由 Consul 自动注销，默认 10 分钟
+deregister_critical_after_ms=600000
+
 [log]
 ; 日志级别
 ; 可选值通常包括 trace/debug/info/warn/error

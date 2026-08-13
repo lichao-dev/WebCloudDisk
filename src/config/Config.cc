@@ -40,6 +40,25 @@ common::Result<bool> parse_boolean(const std::string& value, const std::string& 
     return common::Result<bool>::failure(500, "Invalid configuration option: " + key);
 }
 
+bool valid_consul_url(const std::string& value) {
+    size_t authority_begin = 0;
+    if (value.compare(0, 7, "http://") == 0) {
+        authority_begin = 7;
+    } else if (value.compare(0, 8, "https://") == 0) {
+        authority_begin = 8;
+    } else {
+        return false;
+    }
+
+    if (authority_begin == value.size() || value.find_first_of(" \t\r\n", authority_begin) != std::string::npos ||
+        value.find('@', authority_begin) != std::string::npos) {
+        return false;
+    }
+
+    const size_t suffix = value.find_first_of("/?#", authority_begin);
+    return suffix == std::string::npos || (suffix == value.size() - 1 && value[suffix] == '/');
+}
+
 std::filesystem::path resolve_path(const std::filesystem::path& working_dir, const std::string& value) {
     std::filesystem::path path(value);
     if (path.is_relative()) {
@@ -88,17 +107,38 @@ common::Result<Config> Config::load(const std::filesystem::path& path) {
         parse_unsigned(reader.Get("rpc", "user_service_port", "9601"), "rpc.user_service_port", 1, 65535);
     auto file_service_port =
         parse_unsigned(reader.Get("rpc", "file_service_port", "9602"), "rpc.file_service_port", 1, 65535);
-    auto rpc_request_timeout = parse_unsigned(reader.Get("rpc", "request_timeout_ms", "120000"),
-                                              "rpc.request_timeout_ms", 1000, 600000);
+    auto rpc_request_timeout =
+        parse_unsigned(reader.Get("rpc", "request_timeout_ms", "120000"), "rpc.request_timeout_ms", 1000, 600000);
+    auto consul_retry_max = parse_unsigned(reader.Get("consul", "retry_max", "3"), "consul.retry_max", 0, 10);
+    auto consul_health_check_interval = parse_unsigned(reader.Get("consul", "health_check_interval_ms", "5000"),
+                                                       "consul.health_check_interval_ms", 1000, 600000);
+    auto consul_health_check_timeout = parse_unsigned(reader.Get("consul", "health_check_timeout_ms", "2000"),
+                                                      "consul.health_check_timeout_ms", 100, 600000);
+    auto consul_deregister_critical_after =
+        parse_unsigned(reader.Get("consul", "deregister_critical_after_ms", "600000"),
+                       "consul.deregister_critical_after_ms", 60000, 86400000);
     auto log_console = parse_boolean(reader.Get("log", "console", "true"), "log.console");
     auto log_roll_size = parse_unsigned(reader.Get("log", "roll_size", "100000000"), "log.roll_size", 1,
                                         static_cast<uint64_t>(std::numeric_limits<size_t>::max()));
     auto log_roll_files = parse_unsigned(reader.Get("log", "roll_files", "5"), "log.roll_files", 1, 1000);
 
     const common::Result<uint64_t>* numeric_values[] = {
-        &server_port,   &database_port, &retry_max,     &token_ttl,      &password_iterations,
-        &max_file_size, &rabbitmq_port, &user_service_port, &file_service_port, &rpc_request_timeout,
-        &log_roll_size, &log_roll_files,
+        &server_port,
+        &database_port,
+        &retry_max,
+        &token_ttl,
+        &password_iterations,
+        &max_file_size,
+        &rabbitmq_port,
+        &user_service_port,
+        &file_service_port,
+        &rpc_request_timeout,
+        &consul_retry_max,
+        &consul_health_check_interval,
+        &consul_health_check_timeout,
+        &consul_deregister_critical_after,
+        &log_roll_size,
+        &log_roll_files,
     };
     for (const auto* result : numeric_values) {
         if (!result->ok()) {
@@ -147,6 +187,20 @@ common::Result<Config> Config::load(const std::filesystem::path& path) {
     config.rpc.file_service_host = reader.Get("rpc", "file_service_host", "127.0.0.1");
     config.rpc.file_service_port = static_cast<uint16_t>(file_service_port.value());
     config.rpc.request_timeout_ms = static_cast<int>(rpc_request_timeout.value());
+
+    config.consul.url = reader.Get("consul", "url", "http://127.0.0.1:8500");
+    if (config.consul.url.size() > 1 && config.consul.url.back() == '/') {
+        config.consul.url.pop_back();
+    }
+    config.consul.datacenter = reader.Get("consul", "datacenter", "dc1");
+    config.consul.token = reader.Get("consul", "token", "");
+    config.consul.user_service_name = reader.Get("consul", "user_service_name", "webdisk-user-service");
+    config.consul.file_service_name = reader.Get("consul", "file_service_name", "webdisk-file-service");
+    config.consul.health_check_host = reader.Get("consul", "health_check_host", "host.docker.internal");
+    config.consul.retry_max = static_cast<int>(consul_retry_max.value());
+    config.consul.health_check_interval_ms = static_cast<int>(consul_health_check_interval.value());
+    config.consul.health_check_timeout_ms = static_cast<int>(consul_health_check_timeout.value());
+    config.consul.deregister_critical_after_ms = static_cast<int>(consul_deregister_critical_after.value());
 
     config.log.level = reader.Get("log", "level", "info");
     config.log.console = log_console.value();
@@ -200,7 +254,21 @@ common::Result<Config> Config::load(const std::filesystem::path& path) {
             500, "rabbitmq.host, username, password, vhost, and queue must not be empty when OSS backup is enabled");
     }
     if (config.rpc.user_service_host.empty() || config.rpc.file_service_host.empty()) {
-        return common::Result<Config>::failure(500, "rpc.user_service_host and rpc.file_service_host must not be empty");
+        return common::Result<Config>::failure(500,
+                                               "rpc.user_service_host and rpc.file_service_host must not be empty");
+    }
+    if (!valid_consul_url(config.consul.url)) {
+        return common::Result<Config>::failure(
+            500, "consul.url must contain only an HTTP or HTTPS origin without credentials");
+    }
+    if (config.consul.datacenter.empty() || config.consul.user_service_name.empty() ||
+        config.consul.file_service_name.empty() || config.consul.health_check_host.empty()) {
+        return common::Result<Config>::failure(
+            500, "consul.datacenter, user_service_name, file_service_name, and health_check_host must not be empty");
+    }
+    if (config.consul.health_check_timeout_ms > config.consul.health_check_interval_ms) {
+        return common::Result<Config>::failure(
+            500, "consul.health_check_timeout_ms must not exceed health_check_interval_ms");
     }
     if (!config.log.console && (config.log.gateway_file.empty() || config.log.user_service_file.empty() ||
                                 config.log.file_service_file.empty())) {
@@ -227,20 +295,22 @@ std::string Config::to_string() const {
            << "oss{enabled=" << oss.enabled << ", region=" << oss.region << ", bucket=" << oss.bucket
            << ", key_prefix=" << oss.key_prefix << ", credentials_provider=environment} "
            << "rabbitmq{host=" << rabbitmq.host << ", port=" << rabbitmq.port << ", vhost=" << rabbitmq.vhost
-           << ", queue=" << rabbitmq.queue
-           << ", username_configured=" << !rabbitmq.username.empty()
+           << ", queue=" << rabbitmq.queue << ", username_configured=" << !rabbitmq.username.empty()
            << ", password_configured=" << !rabbitmq.password.empty() << "} "
            << "rpc{user_service=" << rpc.user_service_host << ":" << rpc.user_service_port
            << ", file_service=" << rpc.file_service_host << ":" << rpc.file_service_port
            << ", request_timeout_ms=" << rpc.request_timeout_ms << "} "
-           << "log{level=" << log.level << ", console=" << log.console
-           << ", roll_size=" << log.roll_size
+           << "consul{url=" << consul.url << ", datacenter=" << consul.datacenter
+           << ", token_configured=" << !consul.token.empty() << ", user_service_name=" << consul.user_service_name
+           << ", file_service_name=" << consul.file_service_name << ", health_check_host=" << consul.health_check_host
+           << ", retry_max=" << consul.retry_max << ", health_check_interval_ms=" << consul.health_check_interval_ms
+           << ", health_check_timeout_ms=" << consul.health_check_timeout_ms
+           << ", deregister_critical_after_ms=" << consul.deregister_critical_after_ms << "} "
+           << "log{level=" << log.level << ", console=" << log.console << ", roll_size=" << log.roll_size
            << ", worker_file=" << (log.worker_file.empty() ? "disabled" : log.worker_file.string())
            << ", gateway_file=" << (log.gateway_file.empty() ? "disabled" : log.gateway_file.string())
-           << ", user_service_file="
-           << (log.user_service_file.empty() ? "disabled" : log.user_service_file.string())
-           << ", file_service_file="
-           << (log.file_service_file.empty() ? "disabled" : log.file_service_file.string())
+           << ", user_service_file=" << (log.user_service_file.empty() ? "disabled" : log.user_service_file.string())
+           << ", file_service_file=" << (log.file_service_file.empty() ? "disabled" : log.file_service_file.string())
            << ", roll_files=" << log.roll_files << "}";
     return output.str();
 }

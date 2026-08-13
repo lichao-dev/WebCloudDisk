@@ -64,6 +64,20 @@ public:
         int request_timeout_ms{120000};
     };
 
+    struct Consul {
+        std::string url{"http://127.0.0.1:8500"}; // Consul HTTP API 地址。
+        std::string datacenter{"dc1"}; // Consul 数据中心名称，用于服务注册与查询
+        std::string token; // Consul ACL Token；未启用 ACL 时可留空
+        std::string user_service_name{"webdisk-user-service"}; // 用户服务在 Consul 中注册的服务名称
+        std::string file_service_name{"webdisk-file-service"}; // 文件服务在 Consul 中注册的服务名称
+        // Docker 中的 Consul Agent 通过该主机名检查 macOS 宿主机上的 RPC 端口。
+        std::string health_check_host{"host.docker.internal"};
+        int retry_max{3}; // Consul 请求失败后的最大重试次数
+        int health_check_interval_ms{5000}; // 健康检查执行间隔，单位：毫秒
+        int health_check_timeout_ms{2000}; // 单次健康检查的超时时间，单位：毫秒
+        int deregister_critical_after_ms{600000}; // 服务持续处于 critical 状态超过该时间后自动注销，单位：毫秒
+    };
+
     struct Log {
         std::string level{"info"};
         bool console{true};
@@ -88,6 +102,7 @@ public:
     Oss oss;
     RabbitMq rabbitmq;
     Rpc rpc;
+    Consul consul;
     Log log;
 };
 

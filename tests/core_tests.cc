@@ -1,4 +1,7 @@
 #include "config/Config.h"
+#include "discovery/ConsulServiceDiscovery.h"
+#include "discovery/ConsulServiceRegistrar.h"
+#include "discovery/RoundRobinEndpointSelector.h"
 #include "log/Log.h"
 #include "messaging/BackupTask.h"
 #include "security/JwtService.h"
@@ -17,6 +20,7 @@
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace {
 
@@ -47,8 +51,7 @@ private:
 
 std::filesystem::path make_test_root() {
     const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
-    const auto root = std::filesystem::temp_directory_path() /
-                      ("web-cloud-disk-tests-" + std::to_string(stamp));
+    const auto root = std::filesystem::temp_directory_path() / ("web-cloud-disk-tests-" + std::to_string(stamp));
     std::filesystem::create_directories(root);
     return root;
 }
@@ -70,6 +73,10 @@ void test_config(const std::filesystem::path& root) {
               "vhost=/test\nqueue=test.oss.backup.v1\n"
               "[rpc]\nuser_service_host=127.0.0.1\nuser_service_port=9601\n"
               "file_service_host=127.0.0.1\nfile_service_port=9602\nrequest_timeout_ms=120000\n"
+              "[consul]\nurl=http://127.0.0.1:8500/\ndatacenter=dc1\ntoken=test-consul-token\n"
+              "user_service_name=webdisk-user-service\nfile_service_name=webdisk-file-service\n"
+              "health_check_host=host.docker.internal\nretry_max=3\nhealth_check_interval_ms=5000\n"
+              "health_check_timeout_ms=2000\nderegister_critical_after_ms=600000\n"
               "[log]\nlevel=info\nconsole=false\nworker_file=./test-log/worker.log\n"
               "gateway_file=./test-log/gateway.log\nuser_service_file=./test-log/user-service.log\n"
               "file_service_file=./test-log/file-service.log\n"
@@ -97,13 +104,21 @@ void test_config(const std::filesystem::path& root) {
     assert(config.value().rpc.file_service_host == "127.0.0.1");
     assert(config.value().rpc.file_service_port == 9602);
     assert(config.value().rpc.request_timeout_ms == 120000);
+    assert(config.value().consul.url == "http://127.0.0.1:8500");
+    assert(config.value().consul.datacenter == "dc1");
+    assert(config.value().consul.token == "test-consul-token");
+    assert(config.value().consul.user_service_name == "webdisk-user-service");
+    assert(config.value().consul.file_service_name == "webdisk-file-service");
+    assert(config.value().consul.health_check_host == "host.docker.internal");
+    assert(config.value().consul.retry_max == 3);
+    assert(config.value().consul.health_check_interval_ms == 5000);
+    assert(config.value().consul.health_check_timeout_ms == 2000);
+    assert(config.value().consul.deregister_critical_after_ms == 600000);
     assert(!config.value().log.console);
     assert(config.value().log.worker_file == (working_dir / "test-log" / "worker.log").lexically_normal());
     assert(config.value().log.gateway_file == (working_dir / "test-log" / "gateway.log").lexically_normal());
-    assert(config.value().log.user_service_file ==
-           (working_dir / "test-log" / "user-service.log").lexically_normal());
-    assert(config.value().log.file_service_file ==
-           (working_dir / "test-log" / "file-service.log").lexically_normal());
+    assert(config.value().log.user_service_file == (working_dir / "test-log" / "user-service.log").lexically_normal());
+    assert(config.value().log.file_service_file == (working_dir / "test-log" / "file-service.log").lexically_normal());
     assert(config.value().log.roll_size == 2048);
     assert(config.value().log.roll_files == 3);
 
@@ -125,6 +140,8 @@ void test_config(const std::filesystem::path& root) {
     auto local_only_config = webdisk::config::Config::load(path);
     assert(local_only_config);
     assert(!local_only_config.value().oss.enabled);
+    assert(local_only_config.value().consul.url == "http://127.0.0.1:8500");
+    assert(local_only_config.value().consul.health_check_host == "host.docker.internal");
 
     std::ofstream missing_rabbitmq_output(path);
     missing_rabbitmq_output << "[database]\nhost=127.0.0.1\nusername=test\ndatabase=CloudDisk\n"
@@ -135,6 +152,16 @@ void test_config(const std::filesystem::path& root) {
     auto missing_rabbitmq_config = webdisk::config::Config::load(path);
     assert(!missing_rabbitmq_config);
     assert(missing_rabbitmq_config.error().message.find("rabbitmq.host") != std::string::npos);
+
+    std::ofstream invalid_consul_output(path);
+    invalid_consul_output << "[database]\nhost=127.0.0.1\nusername=test\ndatabase=CloudDisk\n"
+                             "[auth]\njwt_secret=01234567890123456789012345678901\n"
+                             "[consul]\nhealth_check_interval_ms=1000\nhealth_check_timeout_ms=2000\n";
+    invalid_consul_output.close();
+
+    auto invalid_consul_config = webdisk::config::Config::load(path);
+    assert(!invalid_consul_config);
+    assert(invalid_consul_config.error().message.find("health_check_timeout_ms") != std::string::npos);
 }
 
 void test_backup_task_message() {
@@ -154,6 +181,58 @@ void test_backup_task_message() {
     assert(!webdisk::messaging::parse_backup_task("not-json"));
     assert(!webdisk::messaging::parse_backup_task("{\"version\":2,\"hashcode\":\"" + hashcode + "\",\"size\":42}"));
     assert(!webdisk::messaging::parse_backup_task("{\"version\":1,\"hashcode\":\"invalid\",\"size\":42}"));
+}
+
+void test_consul_service_identity() {
+    using webdisk::discovery::ConsulServiceRegistrar;
+
+    auto registrar = ConsulServiceRegistrar::create(webdisk::config::Config::Consul{});
+    assert(registrar);
+    assert(registrar.value()->instance_id().empty());
+    assert(registrar.value()->deregister_service());
+
+    assert(ConsulServiceRegistrar::make_instance_id("webdisk-user-service", "127.0.0.1", 9601) ==
+           "webdisk-user-service-127-0-0-1-9601");
+    assert(ConsulServiceRegistrar::make_instance_id("webdisk-user-service", "host.example.com", 9601) ==
+           "webdisk-user-service-host-example-com-9601");
+    assert(ConsulServiceRegistrar::make_tcp_address("host.docker.internal", 9601) == "host.docker.internal:9601");
+    assert(ConsulServiceRegistrar::make_tcp_address("::1", 9601) == "[::1]:9601");
+}
+
+void test_consul_service_discovery() {
+    std::vector<protocol::ConsulServiceInstance> instances(4);
+    instances[0].service.service_id = "user-b";
+    instances[0].service.service_address = {"127.0.0.1", 9612};
+    instances[1].service.service_id = "invalid-empty-host";
+    instances[1].service.service_address = {"", 9613};
+    instances[2].service.service_id = "user-a";
+    instances[2].service.service_address = {"127.0.0.1", 9611};
+    instances[3].service.service_id = "invalid-zero-port";
+    instances[3].service.service_address = {"127.0.0.1", 0};
+
+    auto endpoints = webdisk::discovery::ConsulServiceDiscovery::make_endpoints(instances);
+    assert(endpoints);
+    assert(endpoints.value().size() == 2);
+    assert(endpoints.value()[0].instance_id == "user-a");
+    assert(endpoints.value()[0].port == 9611);
+    assert(endpoints.value()[1].instance_id == "user-b");
+    assert(endpoints.value()[1].port == 9612);
+
+    webdisk::discovery::RoundRobinEndpointSelector selector;
+    auto first = selector.select(endpoints.value());
+    auto second = selector.select(endpoints.value());
+    auto third = selector.select(endpoints.value());
+    assert(first && first.value().instance_id == "user-a");
+    assert(second && second.value().instance_id == "user-b");
+    assert(third && third.value().instance_id == "user-a");
+
+    // 实例集合缩减后，持续递增的轮询序号仍必须映射到剩余的有效端点。
+    const std::vector<webdisk::discovery::ServiceEndpoint> remaining{endpoints.value()[1]};
+    auto after_removal = selector.select(remaining);
+    assert(after_removal && after_removal.value().instance_id == "user-b");
+
+    assert(!selector.select({}));
+    assert(!webdisk::discovery::ConsulServiceDiscovery::make_endpoints({}));
 }
 
 void test_password_hashing() {
@@ -245,6 +324,7 @@ void test_logging(const std::filesystem::path& root) {
     app_config.oss.bucket = "test-backup-bucket";
     app_config.rabbitmq.username = "private-rabbitmq-user";
     app_config.rabbitmq.password = "private-rabbitmq-password";
+    app_config.consul.token = "private-consul-token";
     const std::string config_text = app_config.to_string();
     LOG_INFO("Configuration: {}", config_text);
     webdisk::log::Log::shutdown();
@@ -265,6 +345,8 @@ void test_logging(const std::filesystem::path& root) {
     assert(content.find("oss{enabled=true") != std::string::npos);
     assert(content.find("credentials_provider=environment") != std::string::npos);
     assert(content.find("rabbitmq{host=") != std::string::npos);
+    assert(content.find("consul{url=") != std::string::npos);
+    assert(content.find("token_configured=true") != std::string::npos);
     assert(content.find("username_configured=true") != std::string::npos);
     assert(content.find("password_configured=true") != std::string::npos);
     assert(content.find("private-db-user") == std::string::npos);
@@ -272,6 +354,7 @@ void test_logging(const std::filesystem::path& root) {
     assert(content.find("private-jwt-secret") == std::string::npos);
     assert(content.find("private-rabbitmq-user") == std::string::npos);
     assert(content.find("private-rabbitmq-password") == std::string::npos);
+    assert(content.find("private-consul-token") == std::string::npos);
 
     std::ifstream current_input(log_config.file);
     const std::string current_content((std::istreambuf_iterator<char>(current_input)),
@@ -285,6 +368,8 @@ void test_logging(const std::filesystem::path& root) {
 int main() {
     const auto root = make_test_root();
     test_config(root);
+    test_consul_service_identity();
+    test_consul_service_discovery();
     test_backup_task_message();
     test_password_hashing();
     test_jwt();

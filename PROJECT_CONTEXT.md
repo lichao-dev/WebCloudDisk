@@ -18,8 +18,11 @@ WebCloudDisk 是一个 C++17 Web 网盘项目。第三期 RabbitMQ 异步 OSS �
 - 统一 JSON API 响应、错误传播和日志。
 - 第四期第一版微服务拆分：HTTP API 网关、用户 sRPC 服务和文件 sRPC 服务。
 - Protobuf 协议自动生成、项目内 sRPC 静态链接，以及 macOS 本机三进程联调。
+- 第五期 Consul：两个 RPC 服务启动后注册、TCP 健康检查、停止前注销。
+- 网关查询 passing 实例、转换端点、线程安全轮询，并按所选地址创建本次 sRPC 调用。
 
-当前尚未实现 Docker/Compose 项目部署、Transactional Outbox、延迟重试、死信队列、RabbitMQ 自动重连、服务注册发现、文件删除和分享。本地文件丢失后的 OSS 恢复也留待后续完成。
+当前尚未实现 Docker/Compose 项目部署、Transactional Outbox、延迟重试、死信队列、RabbitMQ 自动重连、
+文件删除和分享。本地文件丢失后的 OSS 恢复也留待后续完成。
 
 需求主文档：`docs/Web网盘项目-Markdown/Web网盘项目.md`：
 
@@ -27,13 +30,16 @@ WebCloudDisk 是一个 C++17 Web 网盘项目。第三期 RabbitMQ 异步 OSS �
 - 第 2 章 Docker 当前是学习和后续容器化准备，仓库里还没有项目 Dockerfile、Compose 或镜像构建流程。
 - 第 3 章 OSS 保留“本地为主、OSS 容灾备份”的结构，实际上传已经迁移到独立 Worker。
 - 第 4 章 RabbitMQ 已完成第一阶段生产者、持久化队列、消费者和手动确认链路。
-- 第 5 章已完成第一版固定地址微服务：网关调用用户和文件两个 sRPC 服务；第 6 章 Consul 尚未开始。
+- 第 5 章已完成第一版固定地址微服务：网关调用用户和文件两个 sRPC 服务。
+- 第 6 章 Consul 已形成完整开发闭环：注册、TCP 健康检查、注销、passing 实例查询、轮询和网关动态调用。
 
 ## 2. 当前 Git 与工作区状态
 
 - 当前分支：`main`。
-- 当前基线提交：`af7339b Prepare macOS sRPC microservice development`。
-- RabbitMQ 异步 OSS 备份第一阶段和 sRPC 0.10.4 源码已提交；第四期微服务实现尚未提交，具体状态始终以实时 `git status` 和 `git diff` 为准。
+- 第四期基线提交：`9463a5a Implement sRPC microservice architecture`。
+- RabbitMQ 异步 OSS 备份第一阶段、项目内 sRPC 0.10.4、第四期微服务和第五期 Consul 完整链路均已纳入本地
+  `main`。截至本次更新，第五期提交尚未推送到 `origin/main`；后续仍以实时 `git status`、`git log` 和远端状态
+  为准。
 - OSS 配置、RabbitMQ 发布与消费、真实 Broker 冒烟、真实 Bucket 备份和 HTTP 上传链路均已完成验证。
 - 未提交修改同样视为用户当前工作成果；不要覆盖、还原或重置。
 - `conf/server.ini`、`log/`、`upload/`、`build/` 和 `compile_commands.json` 已在 `.gitignore` 中忽略。
@@ -59,7 +65,24 @@ cloud_disk_backup_worker
 RabbitMQ / FileStorage / OssBackupStorage
   ↓
 本地文件系统 / OSS
+
+cloud_disk_user_service / cloud_disk_file_service
+  ↓ 启动后注册，停止前注销
+Consul (:8500)
+  ↓ TCP 检查 host.docker.internal:9601 / :9602
+passing 健康实例
+
+cloud_disk_api_gateway
+  ↓ 每次请求查询 passing 实例
+ConsulServiceDiscovery
+  ↓
+RoundRobinEndpointSelector
+  ↓
+按所选 host:port 创建 sRPC 任务
 ```
+
+`GatewayApplication` 持有一个 Consul 查询器以及用户、文件服务各自的轮询选择器。发现任务先加入当前 HTTP
+`SeriesWork`；发现回调选择端点并把对应 sRPC 任务追加到同一序列，保证执行顺序和请求对象生命周期一致。
 
 旧的 `cloud_disk_server`、`Application` 和单体 HTTP Handler 已删除；HTTP 请求只通过 API 网关进入系统。
 
@@ -68,8 +91,9 @@ RabbitMQ / FileStorage / OssBackupStorage
 - `src/config`：通过 inih 加载、严格校验 INI，并解析相对于进程工作目录的路径。
 - `src/common`：`Result<T>`、`Result<void>` 和 `AppError`。
 - `src/database`：封装 Workflow MySQL 任务创建、连接 URL 和 SQL 字符串转义。
+- `src/discovery`：Consul 服务注册与注销、passing 实例查询、端点转换和简单轮询选择。
 - `src/http`：网关使用的认证中间件和统一 API 响应。
-- `src/gateway`：HTTP API 网关、REST 到 sRPC 的协议转换和进程入口。
+- `src/gateway`：HTTP API 网关、REST 到 sRPC 的协议转换、Consul 动态端点选择和进程入口。
 - `src/log`：同步 spdlog 初始化、关闭和 `LOG_*` 宏。
 - `src/messaging`：备份任务 JSON 契约、发布接口和 RabbitMQ 发布器。
 - `src/model`：`User`、`FileInfo`、`AuthContext` 等跨层数据模型。
@@ -88,16 +112,19 @@ RabbitMQ / FileStorage / OssBackupStorage
 Config
   ├─ API Gateway
   │   ├─ JwtService / AuthMiddleware
-  │   ├─ UserRpcService client
-  │   └─ FileRpcService client
+  │   ├─ ConsulServiceDiscovery
+  │   ├─ User RoundRobinEndpointSelector
+  │   └─ File RoundRobinEndpointSelector
   ├─ User RPC Service
   │   ├─ MySqlClient / UserRepository
   │   ├─ PasswordHasher / JwtService
-  │   └─ AuthService / UserService
+  │   ├─ AuthService / UserService
+  │   └─ ConsulServiceRegistrar
   └─ File RPC Service
       ├─ MySqlClient / FileRepository
       ├─ FileStorage / FileService
-      └─ RabbitMqBackupTaskPublisher（可选）
+      ├─ RabbitMqBackupTaskPublisher（可选）
+      └─ ConsulServiceRegistrar
 ```
 
 独立的 `cloud_disk_backup_worker` 持有 `FileStorage`、`OssBackupStorage` 和 RabbitMQ 消费连接；Web 服务不再创建 OSS 客户端或持有 OSS 凭据。
@@ -124,8 +151,11 @@ Config
 5. 组装网关或 RPC 服务依赖。
 6. 注册 `SIGINT`、`SIGTERM`。
 7. 启动 HTTP 或 sRPC 服务。
-8. 主线程在 `WFFacilities::WaitGroup{1}.wait()` 上等待。
-9. 信号处理函数调用 `done()`，主线程继续执行服务停止和日志关闭。
+8. 用户和文件 RPC 服务在监听成功后同步等待 Consul 注册完成；注册失败则停止 RPC Server 并退出。
+9. 主线程在 `WFFacilities::WaitGroup{1}.wait()` 上等待。
+10. 信号处理函数调用 `done()`；RPC 服务先从 Consul 注销，再停止 RPC Server 并关闭日志。
+
+第 8、10 步只适用于两个 RPC 服务。API 网关不注册到 Consul，但处理请求时通过发现模块查询上游 RPC 服务。
 
 `WaitGroup` 不创建线程；它只是阻塞主线程。`{1}` 表示一次 `done()` 即可解除等待。
 
@@ -353,7 +383,9 @@ MySQL 错误处理先区分 Workflow 传输失败与 MySQL ERR Packet。用户�
 - `[storage]`：root、max_file_size_bytes。
 - `[oss]`：enabled、region、bucket、key_prefix；`enabled` 是整条 RabbitMQ 异步 OSS 备份链路的唯一开关。
 - `[rabbitmq]`：host、port、username、password、vhost、queue；启用 OSS 备份时必须配置，用户名和密码不会写入配置摘要。
-- `[rpc]`：用户服务和文件服务的 host/port；当前为固定地址，第五期 Consul 尚未实现。
+- `[rpc]`：用户和文件服务公布的 host/port，以及网关 RPC 请求超时；网关的上游地址来自 Consul 查询结果。
+- `[consul]`：HTTP API、数据中心、可选 ACL Token、两个逻辑服务名、TCP 健康检查地址、请求重试和检查时间参数。
+  Docker Desktop 内的 Consul 默认通过 `host.docker.internal` 检查 macOS 宿主机 RPC 端口。
 - `[log]`：level、console、roll_size、roll_files；不再包含旧单体使用的通用 `file` 配置。
 - `[log].worker_file`：Worker 独立日志文件，避免多个进程轮转同一文件。
 - `[log].gateway_file/user_service_file/file_service_file`：第四期三个进程各自的滚动日志文件。
@@ -382,6 +414,7 @@ LOG_CRITICAL(...)
 - jwt-cpp 0.7.2：头文件使用。
 - spdlog 1.17.0：由主项目 CMake 通过 `add_subdirectory()` 编译为静态库。
 - Workflow 1.0.1：静态库 `third_party/workflow/_lib/libworkflow.a`。
+- Consul 客户端复用 Workflow 的 `WFConsulClient`，没有新增 ppconsul 依赖。
 - wfrest 0.9.9：静态库 `third_party/wfrest/_lib/libwfrest.a`。
 - 阿里云 OSS C++ SDK V2：由主项目 CMake 通过 `add_subdirectory()` 编译。
 - rabbitmq-c 0.18.0：由主项目 CMake 编译为静态库。
@@ -427,17 +460,27 @@ macOS 上 sRPC 只构建 `srpc-static` 和 `srpc_generator`，并使用 C++17 �
 
 ## 14. 当前已验证状态与待处理事项
 
-2026-08-12 对当前工作区验证：
+2026-08-13 对当前工作区验证：
 
 - Debug 配置和完整构建成功，rabbitmq-c 与 SimpleAmqpClient 均生成静态库。
 - spdlog 由主项目编译到 `build/third_party/spdlog/`，Debug 产物为 `libspdlogd.a`，Release 产物为 `libspdlog.a`，不再依赖源码目录中的预编译产物。
-- `ctest --test-dir build --output-on-failure` 通过，共 `3/3` 个测试，新增测试覆盖 Protobuf 普通消息和含空字节文件内容。
+- `ctest --test-dir build --output-on-failure` 通过，共 `3/3` 个测试：核心组件、RabbitMQ 客户端和 RPC 协议测试。
 - 安装目标只包含 `cloud_disk_api_gateway`、`cloud_disk_user_service`、`cloud_disk_file_service` 和备份 Worker。
 - 子项目没有覆盖主项目的 Debug 构建类型或全局 `CMAKE_CXX_FLAGS`。
 - 新 Web 服务已连接本机 RabbitMQ 4.x，成功声明 `webdisk.oss.backup.v1`：durable=true、auto_delete=false、exclusive=false，并完成启动和 `Ctrl+C` 停止验证。
 - `cloud_disk_rabbitmq_smoke_test` 已通过真实 Broker 验证正式发布器、持久化消息、消费和手动 ACK；它直接消费并校验消息，不访问 OSS，成功后删除独立临时队列。正式 Worker 由真实 OSS 端到端验收覆盖。
 - 经用户明确授权，`cloud_disk_rabbitmq_oss_smoke_producer` 已把固定测试内容写入本地主存储并向业务队列发布任务；正式 Worker 成功上传当前配置的真实 OSS Bucket，随后手动 ACK，队列恢复为零待处理、零未确认消息，并完成 `Ctrl+C` 正常停止。授权约定要求本地文件和 OSS 对象作为测试备份保留。
 - 用户 RPC 服务、文件 RPC 服务和 API 网关已在 macOS 本机分别监听 `9601`、`9602`、`9527`；手动 RPC 冒烟同时连通两个服务，HTTP 空注册请求经网关和用户 RPC 返回统一 400 JSON，三个进程均通过 `Ctrl+C` 正常停止。
+- 用户已手动启动 API 网关、用户 RPC 服务、文件 RPC 服务和备份 Worker 四个正式进程，完成注册、登录、上传和下载，并确认 OSS 中的备份内容正确。
+- macOS Docker 单节点 Consul 2.0.3 已启动，`docker exec consul consul members` 和
+  `http://localhost:8500` UI 可正常访问。
+- 用户和文件 RPC 服务已实现“监听成功后注册、停止前注销”，注册时配置初始 `critical` 状态和 TCP 健康检查；
+  Consul 发现查询只请求 `passing` 实例。
+- `cloud_disk_core_tests` 已覆盖发现结果中的无效地址过滤、按实例 ID 稳定排序、`A → B → A` 轮询及空实例错误；
+  完整构建、`3/3` CTest、`git diff --check` 和根目录 `bin/` 安装验证均已通过。
+- 独立测试服务名下的两个用户 RPC 实例分别监听 `19601`、`19611`，Consul TCP 检查均进入 passing；网关连续
+  请求依次选择两个实例。注销 `19601` 后 passing 列表只剩 `19611`，后续请求仍成功到达剩余实例；全部注销后
+  网关返回 HTTP 503。临时服务、Consul 注册和测试配置均已清理。
 - 当前文件 RPC 使用 Protobuf `bytes` 传输文件，HTTP 和 RPC 请求大小均受配置约束；同机开发可用，但会产生额外序列化与内存复制，跨机器扩容时应改为流式或对象存储直传。
 
 第二阶段：消费者可靠性
@@ -460,6 +503,7 @@ macOS 默认大小写不敏感文件系统上，Workflow 源码中的 `BUILD` �
 
 1. 先阅读本文件、`README.md`、需求主文档，再查看真实的 `git status`、最近提交和当前 `git diff`；不要只相信本文件的时间点快照。
 2. RabbitMQ 第二、第三阶段按用户要求暂停；当前继续使用第一阶段，不要主动开始重试、DLQ、重连或 Outbox。
-3. 第四期第一版已经实现固定地址网关、用户 RPC 和文件 RPC；第五期 Consul 尚未开始，继续开发前先确认用户的新指示。
-4. 保留第 2 节中的全部未提交成果，只修改本次任务明确涉及的文件。
+3. 第五期 Consul 开发闭环和多实例故障切换验证已经完成；继续修改前先检查当前未提交差异，避免破坏注册、发现与
+   HTTP SeriesWork 中的异步执行顺序。
+4. 第五期已纳入本地 `main` 但尚未推送；继续工作时保留任何新增的未提交成果，只修改任务明确涉及的文件。
 5. 提交前运行 `git diff --check`、`cmake --build build --parallel` 和 `ctest --test-dir build --output-on-failure`。
