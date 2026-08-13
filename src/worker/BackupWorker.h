@@ -16,7 +16,7 @@ namespace worker {
 
 class BackupWorker {
 public:
-    static common::Result<std::unique_ptr<BackupWorker>> create(const config::Config& config,
+    static common::Result<std::unique_ptr<BackupWorker>> create(const config::RabbitMq& config,
                                                                 storage::FileStorage& file_storage,
                                                                 storage::OssBackupStorage& oss_backup_storage);
 

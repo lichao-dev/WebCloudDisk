@@ -21,7 +21,7 @@ void signal_handler(int) {
 webdisk::common::Result<std::filesystem::path> parse_config_path(int argc, char* argv[]) {
     if (argc != 3 || std::string_view(argv[1]) != "--config" || std::string_view(argv[2]).empty()) {
         return webdisk::common::Result<std::filesystem::path>::failure(
-            500, "Usage: cloud_disk_backup_worker --config <server.ini>");
+            500, "Usage: cloud_disk_backup_worker --config <backup-worker.ini>");
     }
 
     return webdisk::common::Result<std::filesystem::path>::success(argv[2]);
@@ -36,26 +36,18 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    auto config = webdisk::config::Config::load(config_path.value());
+    auto config = webdisk::config::BackupWorkerConfig::load(config_path.value());
     if (!config) {
         std::cerr << config.error().message << '\n';
         return 1;
     }
 
-    auto worker_log = config.value().log;
-    worker_log.file = worker_log.worker_file;
-    auto log_result = webdisk::log::Log::init(worker_log);
+    auto log_result = webdisk::log::Log::init(config.value().log);
     if (!log_result) {
         std::cerr << log_result.error().message << '\n';
         return 1;
     }
     LOG_INFO("Configuration: {}", config.value().to_string());
-
-    if (!config.value().oss.enabled) {
-        LOG_ERROR("Backup worker requires OSS backup to be enabled");
-        webdisk::log::Log::shutdown();
-        return 1;
-    }
 
     webdisk::storage::FileStorage file_storage{config.value().storage.root};
     auto storage_initialized = file_storage.init();
@@ -72,7 +64,8 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    auto worker = webdisk::worker::BackupWorker::create(config.value(), file_storage, *oss_backup_storage.value());
+    auto worker =
+        webdisk::worker::BackupWorker::create(config.value().rabbitmq, file_storage, *oss_backup_storage.value());
     if (!worker) {
         LOG_ERROR("Backup worker initialization failed");
         webdisk::log::Log::shutdown();

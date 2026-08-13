@@ -1,7 +1,7 @@
 .DS_Store
 /bin/
 /build/
-/conf/server.ini
+/conf/*.ini
 /log/
 /upload/
 

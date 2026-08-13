@@ -11,7 +11,7 @@ namespace messaging {
 
 class RabbitMqBackupTaskPublisher {
 public:
-    static common::Result<std::unique_ptr<RabbitMqBackupTaskPublisher>> create(const config::Config::RabbitMq& config);
+    static common::Result<std::unique_ptr<RabbitMqBackupTaskPublisher>> create(const config::RabbitMq& config);
 
     ~RabbitMqBackupTaskPublisher();
 

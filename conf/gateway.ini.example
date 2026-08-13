@@ -1,0 +1,51 @@
+; API 网关配置示例
+; 使用前复制为 gateway.ini，并让 [auth] 与 user-service.ini 保持一致
+
+[server]
+port=9527
+; Web 静态资源根目录
+; 用于存放前端页面、CSS、JavaScript 等静态文件
+web_root=./www
+
+[auth]
+; JWT 签名密钥
+; 用于生成和验证用户登录 Token
+; 生产环境必须修改为随机生成的高强度密钥
+; 建议长度至少 32 字符
+jwt_secret=change_me_to_a_random_secret_at_least_32_characters
+; JWT 签发者
+; 必须与用户服务保持一致，用于校验 Token 的签发来源
+jwt_issuer=web-cloud-disk
+
+[storage]
+; 网关用该值限制 HTTP 上传请求体，必须与文件服务保持一致
+; 单位：字节；104857600 = 100MB
+max_file_size_bytes=104857600
+
+[rpc]
+; 等待 RPC 服务首次响应的超时时间，大文件传输需要预留足够时间
+request_timeout_ms=120000
+
+[consul]
+; Consul HTTP API；当前 macOS Docker 单节点通过宿主机 8500 端口访问
+url=http://127.0.0.1:8500
+datacenter=dc1
+; 本地未启用 ACL 时留空；启用后填写 Consul Token，日志只记录是否已配置
+token=
+; 同一服务的多个实例共享逻辑服务名
+user_service_name=webdisk-user-service
+file_service_name=webdisk-file-service
+; Consul 请求失败时最大重试次数
+retry_max=3
+
+[log]
+; 日志级别，可选值通常包括 trace/debug/info/warn/error
+level=info
+; 是否同时输出到控制台
+console=true
+; 当前进程独占的滚动日志文件
+file=./log/cloud_disk_api_gateway.log
+; 单个日志文件的最大字节数，达到后自动轮转
+roll_size=100000000
+; 最多保留的轮转日志文件数量
+roll_files=5

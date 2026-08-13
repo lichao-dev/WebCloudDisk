@@ -20,7 +20,7 @@ void signal_handler(int) {
 webdisk::common::Result<std::filesystem::path> parse_config_path(int argc, char* argv[]) {
     if (argc != 3 || std::string_view(argv[1]) != "--config" || std::string_view(argv[2]).empty()) {
         return webdisk::common::Result<std::filesystem::path>::failure(
-            500, "Usage: cloud_disk_api_gateway --config <server.ini>");
+            500, "Usage: cloud_disk_api_gateway --config <gateway.ini>");
     }
     return webdisk::common::Result<std::filesystem::path>::success(argv[2]);
 }
@@ -34,15 +34,13 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    auto config = webdisk::config::Config::load(config_path.value());
+    auto config = webdisk::config::GatewayConfig::load(config_path.value());
     if (!config) {
         std::cerr << config.error().message << '\n';
         return 1;
     }
 
-    webdisk::config::Config::Log log_config = config.value().log;
-    log_config.file = log_config.gateway_file;
-    auto log_result = webdisk::log::Log::init(log_config);
+    auto log_result = webdisk::log::Log::init(config.value().log);
     if (!log_result) {
         std::cerr << log_result.error().message << '\n';
         return 1;

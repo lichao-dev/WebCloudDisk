@@ -15,7 +15,7 @@ namespace discovery {
 // 封装服务实例向 Consul 注册和注销的同步启动阶段操作。
 class ConsulServiceRegistrar {
 public:
-    static common::Result<std::unique_ptr<ConsulServiceRegistrar>> create(config::Config::Consul config);
+    static common::Result<std::unique_ptr<ConsulServiceRegistrar>> create(config::Consul config);
 
     ConsulServiceRegistrar(const ConsulServiceRegistrar&) = delete;
     ConsulServiceRegistrar& operator=(const ConsulServiceRegistrar&) = delete;
@@ -36,9 +36,9 @@ public:
     static std::string make_tcp_address(const std::string& host, uint16_t port);
 
 private:
-    explicit ConsulServiceRegistrar(config::Config::Consul config);
+    explicit ConsulServiceRegistrar(config::Consul config);
 
-    config::Config::Consul config_;
+    config::Consul config_;
     WFConsulClient client_;
     std::string instance_id_;
 };

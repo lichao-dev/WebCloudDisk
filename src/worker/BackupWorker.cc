@@ -34,35 +34,30 @@ BackupWorker::BackupWorker(storage::FileStorage& file_storage, storage::OssBacku
 
 BackupWorker::~BackupWorker() = default;
 
-common::Result<std::unique_ptr<BackupWorker>> BackupWorker::create(const config::Config& config,
+common::Result<std::unique_ptr<BackupWorker>> BackupWorker::create(const config::RabbitMq& config,
                                                                    storage::FileStorage& file_storage,
                                                                    storage::OssBackupStorage& oss_backup_storage) {
-    if (!config.oss.enabled) {
-        return common::Result<std::unique_ptr<BackupWorker>>::failure(
-            500, "OSS backup must be enabled for the backup worker");
-    }
-
     try {
         AmqpClient::Channel::OpenOpts options;
-        options.host = config.rabbitmq.host;
-        options.port = config.rabbitmq.port;
-        options.vhost = config.rabbitmq.vhost;
-        options.auth = AmqpClient::Channel::OpenOpts::BasicAuth{config.rabbitmq.username, config.rabbitmq.password};
+        options.host = config.host;
+        options.port = config.port;
+        options.vhost = config.vhost;
+        options.auth = AmqpClient::Channel::OpenOpts::BasicAuth{config.username, config.password};
 
         auto channel = AmqpClient::Channel::Open(options);
-        channel->DeclareQueue(config.rabbitmq.queue, false, true, false, false);
+        channel->DeclareQueue(config.queue, false, true, false, false);
         // 关闭自动确认和独占消费，每次只预取一条，避免单个阻塞式 OSS 上传占住多条未确认消息。
-        auto consumer_tag = channel->BasicConsume(config.rabbitmq.queue, "", true, false, false, 1);
+        auto consumer_tag = channel->BasicConsume(config.queue, "", true, false, false, 1);
 
-        auto impl = std::make_unique<Impl>(config.rabbitmq.queue, std::move(consumer_tag), std::move(channel));
+        auto impl = std::make_unique<Impl>(config.queue, std::move(consumer_tag), std::move(channel));
         auto worker =
             std::unique_ptr<BackupWorker>(new BackupWorker(file_storage, oss_backup_storage, std::move(impl)));
-        LOG_INFO("RabbitMQ backup worker initialized: host={}, port={}, vhost={}, queue={}", config.rabbitmq.host,
-                 config.rabbitmq.port, config.rabbitmq.vhost, config.rabbitmq.queue);
+        LOG_INFO("RabbitMQ backup worker initialized: host={}, port={}, vhost={}, queue={}", config.host, config.port,
+                 config.vhost, config.queue);
         return common::Result<std::unique_ptr<BackupWorker>>::success(std::move(worker));
     } catch (const std::exception& e) {
         LOG_ERROR("Failed to initialize RabbitMQ backup worker: host={}, port={}, vhost={}, queue={}, error={}",
-                  config.rabbitmq.host, config.rabbitmq.port, config.rabbitmq.vhost, config.rabbitmq.queue, e.what());
+                  config.host, config.port, config.vhost, config.queue, e.what());
         return common::Result<std::unique_ptr<BackupWorker>>::failure(500,
                                                                       "Failed to initialize RabbitMQ backup worker");
     }

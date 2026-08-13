@@ -14,7 +14,7 @@ class MySqlClient {
 public:
     using Callback = std::function<void(WFMySQLTask*)>;
 
-    explicit MySqlClient(const config::Config::Database& config);
+    explicit MySqlClient(const config::Database& config);
 
     WFMySQLTask* create_task(const std::string& sql, Callback callback) const;
     // 转义即将拼接进 SQL 字符串字面量的特殊字符，避免输入破坏 SQL 结构；返回值不包含外层单引号。

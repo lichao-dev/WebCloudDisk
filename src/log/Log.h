@@ -10,7 +10,7 @@ namespace log {
 
 class Log final {
 public:
-    static common::Result<void> init(const config::Config::Log& config);
+    static common::Result<void> init(const config::Log& config);
 
     // 关闭 spdlog 日志系统，释放 spdlog 管理的资源
     static void shutdown() noexcept;

@@ -43,7 +43,7 @@ std::optional<spdlog::level::level_enum> parse_level(std::string_view level) {
 
 } // namespace
 
-common::Result<void> Log::init(const config::Config::Log& config) {
+common::Result<void> Log::init(const config::Log& config) {
     const auto level = parse_level(config.level);
     if (!level.has_value()) {
         return common::Result<void>::failure(500, "Invalid log level: " + config.level);

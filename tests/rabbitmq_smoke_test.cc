@@ -17,12 +17,12 @@ namespace {
 webdisk::common::Result<std::filesystem::path> parse_config_path(int argc, char* argv[]) {
     if (argc != 3 || std::string_view(argv[1]) != "--config" || std::string_view(argv[2]).empty()) {
         return webdisk::common::Result<std::filesystem::path>::failure(
-            500, "Usage: cloud_disk_rabbitmq_smoke_test --config <server.ini>");
+            500, "Usage: cloud_disk_rabbitmq_smoke_test --config <file-service.ini>");
     }
     return webdisk::common::Result<std::filesystem::path>::success(argv[2]);
 }
 
-AmqpClient::Channel::ptr_t open_channel(const webdisk::config::Config::RabbitMq& config) {
+AmqpClient::Channel::ptr_t open_channel(const webdisk::config::RabbitMq& config) {
     AmqpClient::Channel::OpenOpts options;
     options.host = config.host;
     options.port = config.port;
@@ -40,8 +40,8 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    auto config = webdisk::config::Config::load(config_path.value());
-    if (!config || !config.value().oss.enabled) {
+    auto config = webdisk::config::FileServiceConfig::load(config_path.value());
+    if (!config || !config.value().backup_enabled) {
         std::cerr << "RabbitMQ smoke-test configuration is unavailable\n";
         return 1;
     }

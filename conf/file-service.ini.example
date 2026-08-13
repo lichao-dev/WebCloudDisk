@@ -1,0 +1,70 @@
+; 文件 RPC 服务配置示例
+; 使用前复制为 file-service.ini
+
+[database]
+; MySQL 数据库服务器地址
+host=127.0.0.1
+port=3306
+username=change_me
+password=change_me
+; 使用的数据库名称
+database=CloudDisk
+; 数据库连接失败时最大重试次数
+retry_max=3
+
+[storage]
+; root 必须与 backup-worker.ini 指向同一份本地内容寻址存储
+; 用户上传的文件默认保存到该目录
+root=./upload
+; 必须与 gateway.ini 的上传大小限制保持一致
+; 单位：字节；104857600 = 100MB
+max_file_size_bytes=104857600
+
+[backup]
+; 默认开启；设为 false 时文件服务不连接 RabbitMQ，也不发布备份任务
+; 文件服务只负责发布任务，不直接持有 OSS 凭据
+enabled=true
+
+[rabbitmq]
+host=127.0.0.1
+port=5672
+username=change_me
+password=change_me
+vhost=/
+; 第一阶段使用默认交换机，队列名同时作为 routing key
+queue=webdisk.oss.backup.v1
+
+[rpc]
+; host 是注册到 Consul 后提供给网关连接的地址，port 同时是本进程监听端口
+file_service_host=127.0.0.1
+file_service_port=9602
+
+[consul]
+; Consul HTTP API；当前 macOS Docker 单节点通过宿主机 8500 端口访问
+url=http://127.0.0.1:8500
+datacenter=dc1
+; 本地未启用 ACL 时留空；启用后填写 Consul Token，日志只记录是否已配置
+token=
+; 同一服务的多个实例共享逻辑服务名
+file_service_name=webdisk-file-service
+; Consul Agent 位于 Docker 容器内，检查宿主机 RPC 端口时不能使用 127.0.0.1
+; 如果以后改为 macOS 原生 Consul，可改成 127.0.0.1
+health_check_host=host.docker.internal
+; Consul 请求失败时最大重试次数
+retry_max=3
+health_check_interval_ms=5000
+health_check_timeout_ms=2000
+; 实例持续处于 critical 后由 Consul 自动注销，默认 10 分钟
+deregister_critical_after_ms=600000
+
+[log]
+; 日志级别，可选值通常包括 trace/debug/info/warn/error
+level=info
+; 是否同时输出到控制台
+console=true
+; 当前进程独占的滚动日志文件
+file=./log/cloud_disk_file_service.log
+; 单个日志文件的最大字节数，达到后自动轮转
+roll_size=100000000
+; 最多保留的轮转日志文件数量
+roll_files=5

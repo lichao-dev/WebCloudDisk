@@ -16,7 +16,7 @@ namespace gateway {
 
 class GatewayApplication {
 public:
-    explicit GatewayApplication(config::Config config);
+    explicit GatewayApplication(config::GatewayConfig config);
 
     common::Result<void> init();
     int start();
@@ -31,7 +31,7 @@ private:
     void upload_file(const wfrest::HttpReq* request, wfrest::HttpResp* response);
     void download_file(const wfrest::HttpReq* request, wfrest::HttpResp* response);
 
-    config::Config config_;
+    config::GatewayConfig config_;
     security::JwtService jwt_service_;
     http::AuthMiddleware auth_middleware_;
     std::unique_ptr<discovery::ConsulServiceDiscovery> service_discovery_;

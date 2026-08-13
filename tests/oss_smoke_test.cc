@@ -22,7 +22,7 @@ struct Arguments {
 webdisk::common::Result<Arguments> parse_arguments(int argc, char* argv[]) {
     if (argc != 5) {
         return webdisk::common::Result<Arguments>::failure(
-            500, "Usage: cloud_disk_oss_smoke_test --config <server.ini> --file <local-file>");
+            500, "Usage: cloud_disk_oss_smoke_test --config <backup-worker.ini> --file <local-file>");
     }
 
     Arguments arguments;
@@ -38,23 +38,18 @@ webdisk::common::Result<Arguments> parse_arguments(int argc, char* argv[]) {
             arguments.file_path = value;
         } else {
             return webdisk::common::Result<Arguments>::failure(
-                500, "Usage: cloud_disk_oss_smoke_test --config <server.ini> --file <local-file>");
+                500, "Usage: cloud_disk_oss_smoke_test --config <backup-worker.ini> --file <local-file>");
         }
     }
 
     if (arguments.config_path.empty() || arguments.file_path.empty()) {
         return webdisk::common::Result<Arguments>::failure(
-            500, "Usage: cloud_disk_oss_smoke_test --config <server.ini> --file <local-file>");
+            500, "Usage: cloud_disk_oss_smoke_test --config <backup-worker.ini> --file <local-file>");
     }
     return webdisk::common::Result<Arguments>::success(std::move(arguments));
 }
 
-int run_smoke_test(const webdisk::config::Config& config, const std::filesystem::path& file_path) {
-    if (!config.oss.enabled) {
-        std::cerr << "OSS must be enabled in the configuration for the smoke test\n";
-        return 1;
-    }
-
+int run_smoke_test(const webdisk::config::BackupWorkerConfig& config, const std::filesystem::path& file_path) {
     std::error_code error;
     if (!std::filesystem::is_regular_file(file_path, error)) {
         std::cerr << "Smoke test input is not a regular file\n";
@@ -62,8 +57,8 @@ int run_smoke_test(const webdisk::config::Config& config, const std::filesystem:
     }
 
     const uintmax_t file_size = std::filesystem::file_size(file_path, error);
-    if (error || file_size > config.storage.max_file_size) {
-        std::cerr << "Smoke test input exceeds the configured file size limit or cannot be inspected\n";
+    if (error) {
+        std::cerr << "Smoke test input cannot be inspected\n";
         return 1;
     }
 
@@ -108,7 +103,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    auto config = webdisk::config::Config::load(arguments.value().config_path);
+    auto config = webdisk::config::BackupWorkerConfig::load(arguments.value().config_path);
     if (!config) {
         std::cerr << config.error().message << '\n';
         return 1;

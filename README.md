@@ -118,23 +118,29 @@ mysql -u root -p cloud_disk < sql/001_init.sql
 
 ## 配置
 
-所有命令均应在项目根目录执行。先复制配置示例：
+所有命令均应在项目根目录执行。四个正式进程分别复制自己的配置示例：
 
 ```bash
-cp conf/server.ini.example conf/server.ini
+cp conf/gateway.ini.example conf/gateway.ini
+cp conf/user-service.ini.example conf/user-service.ini
+cp conf/file-service.ini.example conf/file-service.ini
+cp conf/backup-worker.ini.example conf/backup-worker.ini
 ```
 
 至少需要修改以下配置：
 
-- `[database]` 中的用户名、密码和数据库名称
-- `[auth]` 中的 JWT 密钥；生产环境应使用长度不少于 32 字符的随机密钥
-- 需要 OSS 异步备份时，同时启用 `[oss]` 和 `[rabbitmq]`，并配置 RabbitMQ 连接信息
-- 按实际环境调整存储目录、日志目录、端口和上传大小限制
-- `[rpc]` 配置两个 RPC 服务公布的地址、监听端口和网关请求超时；网关不再把这里的服务地址作为固定上游
-- `[consul]` 配置 HTTP API、服务名、TCP 健康检查地址和时间参数；Docker Desktop 环境默认使用
+- `user-service.ini` 和 `file-service.ini` 中各自的数据库账号、密码和数据库名称
+- `gateway.ini` 与 `user-service.ini` 使用相同的 JWT 密钥和签发者；Token 有效期只由用户服务配置
+- `gateway.ini` 与 `file-service.ini` 使用相同的上传大小限制
+- `file-service.ini` 与 `backup-worker.ini` 使用相同的本地存储根目录和 RabbitMQ 业务队列
+- `file-service.ini` 的 `[backup].enabled` 默认开启 RabbitMQ 任务发布；本地不运行 RabbitMQ 时可设为 `false`
+- `backup-worker.ini` 不设启用开关；启动 Worker 本身即表示启用 OSS 备份
+- 两个 RPC 服务的 `[consul]` 配置 TCP 健康检查地址；Docker Desktop 环境默认使用
   `health_check_host=host.docker.internal`
 
-`conf/server.ini` 包含敏感信息，已被 Git 忽略，不应提交。配置中的 `./www`、`./upload` 和 `./log/...` 等相对路径，都以程序启动时的工作目录为基准，因此项目约定从项目根目录启动服务。
+`conf/*.ini` 包含敏感信息，已被 Git 忽略，不应提交；只有 `*.ini.example` 会进入版本库。每个进程只解析并校验
+自己的配置段，无关段不会造成启动失败。配置中的相对路径以程序启动时的工作目录为基准，因此项目约定从项目根目录
+启动服务。
 
 ## 启动 macOS 单节点 Consul
 
@@ -189,14 +195,16 @@ ctest --test-dir build --output-on-failure
 启动两个 RPC 服务后，可以执行不访问 MySQL 业务数据的连通性检查：
 
 ```bash
-./build/bin/cloud_disk_rpc_smoke_test --config conf/server.ini
+./build/bin/cloud_disk_rpc_smoke_test \
+  --user-config conf/user-service.ini \
+  --file-config conf/file-service.ini
 ```
 
 需要验证正式发布器、真实 Broker、消息属性、消费和手动 ACK，但不访问 OSS 时，执行：
 
 ```bash
 cmake --build build --target cloud_disk_rabbitmq_smoke_test
-./build/bin/cloud_disk_rabbitmq_smoke_test --config conf/server.ini
+./build/bin/cloud_disk_rabbitmq_smoke_test --config conf/file-service.ini
 ```
 
 冒烟程序使用独立临时队列，直接消费并校验正式发布器发送的消息；成功后会手动 ACK 并删除临时队列。正式
@@ -206,8 +214,8 @@ Worker 的处理流程由下面的真实 OSS 端到端验收覆盖。
 
 ```bash
 cmake --build build --target cloud_disk_rabbitmq_oss_smoke_producer cloud_disk_backup_worker
-./build/bin/cloud_disk_rabbitmq_oss_smoke_producer --config conf/server.ini
-./build/bin/cloud_disk_backup_worker --config conf/server.ini
+./build/bin/cloud_disk_rabbitmq_oss_smoke_producer --config conf/file-service.ini
+./build/bin/cloud_disk_backup_worker --config conf/backup-worker.ini
 ```
 
 生产端会把固定内容 `WebCloudDisk RabbitMQ stage-1 OSS smoke test` 写入当前 `storage.root`，并发布到业务队列；
@@ -215,8 +223,8 @@ Worker 上传成功后继续等待后续任务，需要按 `Ctrl+C` 停止。本
 
 ### OSS 手动冒烟验证
 
-普通 CTest 不访问 OSS。需要验证 Region、Bucket、RAM 权限和 OSS SDK V2 时，先在 `conf/server.ini` 中同时启用
-`[oss]`、`[rabbitmq]` 并填写相应连接配置，然后通过环境变量提供 OSS 凭据：
+普通 CTest 不访问 OSS。需要验证 Region、Bucket、RAM 权限和 OSS SDK V2 时，先填写
+`conf/backup-worker.ini` 中的 `[oss]` 和 `[rabbitmq]`，然后通过环境变量提供 OSS 凭据：
 
 ```bash
 export OSS_ACCESS_KEY_ID="your_access_key_id"
@@ -225,11 +233,11 @@ export OSS_ACCESS_KEY_SECRET="your_access_key_secret"
 export OSS_SESSION_TOKEN="your_session_token"
 ```
 
-选择一个不超过 `storage.max_file_size_bytes` 的本地文件执行：
+选择一个本地文件执行：
 
 ```bash
 cmake --build build --target cloud_disk_oss_smoke_test
-./build/bin/cloud_disk_oss_smoke_test --config conf/server.ini --file README.md
+./build/bin/cloud_disk_oss_smoke_test --config conf/backup-worker.ini --file README.md
 ```
 
 程序会以文件内容的 SHA-256 作为对象名，将文件上传到配置的 `key_prefix` 下。该对象会作为正常备份保留，冒烟程序
@@ -251,14 +259,14 @@ cmake --install build --prefix "$PWD"
 
 ## 启动和停止
 
-第五期开发模式应先确保 Consul 正常运行，再从项目根目录启动两个 RPC 服务和 API 网关。启用 OSS 备份时还要
-确保 RabbitMQ Broker 已运行，并启动备份 Worker：
+第五期开发模式应先确保 Consul 正常运行，再从项目根目录启动两个 RPC 服务和 API 网关。文件服务默认发布备份任务，
+因此应确保 RabbitMQ Broker 已运行；启动备份 Worker 本身即表示启用 OSS 备份：
 
 ```bash
-./bin/cloud_disk_user_service --config conf/server.ini
-./bin/cloud_disk_file_service --config conf/server.ini
-./bin/cloud_disk_api_gateway --config conf/server.ini
-./bin/cloud_disk_backup_worker --config conf/server.ini
+./bin/cloud_disk_user_service --config conf/user-service.ini
+./bin/cloud_disk_file_service --config conf/file-service.ini
+./bin/cloud_disk_api_gateway --config conf/gateway.ini
+./bin/cloud_disk_backup_worker --config conf/backup-worker.ini
 ```
 
 默认端口分别为 HTTP `9527`、用户 RPC `9601`、文件 RPC `9602`。所有进程都可通过 `Ctrl+C` 正常停止。Worker

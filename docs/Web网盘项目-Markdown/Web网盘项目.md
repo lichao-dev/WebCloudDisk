@@ -369,49 +369,24 @@ Content-Disposition: attachment; filename=a.txt
 
 ## 1.8 服务配置
 
-第一期后端使用 INI 文件保存服务端口、数据库、JWT、本地文件存储和日志配置。项目通过
-`third_party/inih/INIReader.h` 读取配置。
-
-开发时先复制示例配置：
+项目使用 INI 文件保存运行配置，并通过 `third_party/inih/INIReader.h` 读取。第一期最初只有一份服务端配置；
+拆分为四个正式进程后，各进程只加载并校验自己的配置：
 
 ```bash
-cp conf/server.ini.example conf/server.ini
+cp conf/gateway.ini.example conf/gateway.ini
+cp conf/user-service.ini.example conf/user-service.ini
+cp conf/file-service.ini.example conf/file-service.ini
+cp conf/backup-worker.ini.example conf/backup-worker.ini
 ```
 
-然后修改 `conf/server.ini` 中的数据库账号、数据库密码和 JWT 密钥。真实配置文件包含敏感信息，不能提交到版本库。
+`gateway.ini` 保存 HTTP、JWT 验证、RPC 超时和 Consul 发现配置；`user-service.ini` 保存数据库、密码哈希、JWT
+签发和用户 RPC 注册配置；`file-service.ini` 保存数据库、本地文件、RabbitMQ 发布和文件 RPC 注册配置；
+`backup-worker.ini` 保存本地文件、RabbitMQ 消费和 OSS 配置。网关与用户服务的 JWT 密钥及签发者、文件服务与 Worker 的
+本地存储和 RabbitMQ 队列必须保持一致。文件服务通过默认开启的 `[backup].enabled` 控制是否发布任务；Worker 不设
+启用开关，启动该进程本身即表示启用 OSS 备份。
 
-```ini
-[server]
-port = 9527
-web_root = ./www
-
-[database]
-host = 127.0.0.1
-port = 3306
-username = cloud_disk
-password = change_me
-database = CloudDisk
-retry_max = 3
-
-[auth]
-jwt_secret = change_me_to_a_random_secret_at_least_32_characters
-jwt_issuer = web-cloud-disk
-token_ttl_seconds = 3600
-password_iterations = 600000
-
-[storage]
-root = ./upload
-max_file_size_bytes = 104857600
-
-[log]
-level = info
-console = true
-file = ./log/server.log
-roll_size = 100000000
-roll_files = 5
-```
-
-项目约定从项目根目录启动程序，配置中的相对路径以进程启动时的工作目录为基准。因此 `./upload`、`./www` 和 `./log/server.log` 都指向项目根目录下的对应路径。
+真实 `.ini` 文件包含敏感信息，已被 Git 忽略，不能提交到版本库。项目约定从项目根目录启动程序，配置中的相对路径
+以进程启动时的工作目录为基准。
 
 # 2 Docker
 
@@ -1864,9 +1839,9 @@ cmake -S . -B build \
 cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 
-./build/bin/cloud_disk_user_service --config conf/server.ini
-./build/bin/cloud_disk_file_service --config conf/server.ini
-./build/bin/cloud_disk_api_gateway --config conf/server.ini
+./build/bin/cloud_disk_user_service --config conf/user-service.ini
+./build/bin/cloud_disk_file_service --config conf/file-service.ini
+./build/bin/cloud_disk_api_gateway --config conf/gateway.ini
 ```
 
 当前同机学习实现通过 Protobuf `bytes` 在网关和文件服务之间传输文件，HTTP 与文件 RPC 请求上限都会按

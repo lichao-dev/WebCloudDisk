@@ -109,7 +109,7 @@ void add_discovered_rpc_task(discovery::ConsulServiceDiscovery& service_discover
 
 } // namespace
 
-GatewayApplication::GatewayApplication(config::Config config)
+GatewayApplication::GatewayApplication(config::GatewayConfig config)
     : config_{std::move(config)},
       jwt_service_{config_.auth.jwt_secret, config_.auth.jwt_issuer, config_.auth.token_ttl},
       auth_middleware_{jwt_service_} {}

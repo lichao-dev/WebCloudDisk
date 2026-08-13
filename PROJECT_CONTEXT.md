@@ -42,8 +42,9 @@ WebCloudDisk 是一个 C++17 Web 网盘项目。第三期 RabbitMQ 异步 OSS �
   为准。
 - OSS 配置、RabbitMQ 发布与消费、真实 Broker 冒烟、真实 Bucket 备份和 HTTP 上传链路均已完成验证。
 - 未提交修改同样视为用户当前工作成果；不要覆盖、还原或重置。
-- `conf/server.ini`、`log/`、`upload/`、`build/` 和 `compile_commands.json` 已在 `.gitignore` 中忽略。
-- `conf/server.ini` 含数据库密码和 JWT 密钥，不要打印、提交或写入文档。
+- `conf/*.ini`、`log/`、`upload/`、`build/` 和 `compile_commands.json` 已在 `.gitignore` 中忽略；
+  `conf/*.ini.example` 是可提交的脱敏示例。
+- 四份真实 INI 可能包含数据库密码、JWT 密钥、RabbitMQ 密码或 Consul Token，不要打印、提交或写入文档。
 
 ## 3. 架构与调用方向
 
@@ -88,7 +89,7 @@ RoundRobinEndpointSelector
 
 各目录职责：
 
-- `src/config`：通过 inih 加载、严格校验 INI，并解析相对于进程工作目录的路径。
+- `src/config`：复用公共配置段类型，并由四种进程级配置分别加载、严格校验自己的 INI 字段。
 - `src/common`：`Result<T>`、`Result<void>` 和 `AppError`。
 - `src/database`：封装 Workflow MySQL 任务创建、连接 URL 和 SQL 字符串转义。
 - `src/discovery`：Consul 服务注册与注销、passing 实例查询、端点转换和简单轮询选择。
@@ -106,7 +107,7 @@ RoundRobinEndpointSelector
 - `src/worker`：`cloud_disk_backup_worker` 进程入口、RabbitMQ 消费循环、消息校验、OSS 上传和手动确认。
 - `tests`：核心组件测试，不依赖真实 MySQL。
 
-三个服务进程分别在各自的 `main()` 中组装依赖：
+四个正式进程分别在各自的 `main()` 中组装依赖：
 
 ```text
 Config
@@ -131,12 +132,12 @@ Config
 
 ## 4. 启动与停止
 
-第四期三个服务进程的启动命令必须写全：
+各正式进程的启动命令必须写全，并传入自己的配置文件：
 
 ```bash
-./build/bin/cloud_disk_user_service --config conf/server.ini
-./build/bin/cloud_disk_file_service --config conf/server.ini
-./build/bin/cloud_disk_api_gateway --config conf/server.ini
+./build/bin/cloud_disk_user_service --config conf/user-service.ini
+./build/bin/cloud_disk_file_service --config conf/file-service.ini
+./build/bin/cloud_disk_api_gateway --config conf/gateway.ini
 ```
 
 只执行程序名或参数数量不等于 3 会报用法错误并退出。默认 HTTP、用户 RPC、文件 RPC 端口分别是
@@ -145,7 +146,7 @@ Config
 各进程 `main()` 的共同顺序：
 
 1. 解析 `--config <path>`。
-2. `Config::load()`。
+2. 对应进程配置类型的 `load()`。
 3. `Log::init()`。
 4. 记录去敏后的 `Config::to_string()`。
 5. 组装网关或 RPC 服务依赖。
@@ -159,10 +160,10 @@ Config
 
 `WaitGroup` 不创建线程；它只是阻塞主线程。`{1}` 表示一次 `done()` 即可解除等待。
 
-备份 Worker 使用同一配置文件和同一个 `storage.root`，但写独立日志：
+备份 Worker 使用自己的配置文件；其 `storage.root` 和 RabbitMQ 队列必须与文件服务保持一致：
 
 ```bash
-./build/bin/cloud_disk_backup_worker --config conf/server.ini
+./build/bin/cloud_disk_backup_worker --config conf/backup-worker.ini
 ```
 
 Worker 通过带 1 秒超时的 `BasicConsumeMessage()` 等待消息，因此能定期检查 `SIGINT`/`SIGTERM` 停止标志。第一阶段不自动重连：RabbitMQ 连接或 OSS 上传失败时进程返回失败；OSS 失败的消息保持未确认，连接关闭后由 Broker 重新入队。
@@ -343,7 +344,7 @@ MySQL 错误处理先区分 Workflow 传输失败与 MySQL ERR Packet。用户�
 4. 否则先写 `{root}/.tmp/<hash>.<random>`。
 5. 完整写入后通过 rename 原子发布到 `{root}/{hashcode}`。
 6. 插入 `tbl_file` 元数据。
-7. OSS 与 RabbitMQ 启用时，向持久化队列发布只包含版本、哈希和大小的备份任务。
+7. `[backup].enabled` 开启时，向 RabbitMQ 持久化队列发布只包含版本、哈希和大小的备份任务。
 8. Worker 从同一台机器的 `storage.root / hashcode` 读取内容，上传 `key_prefix + hashcode`，成功后手动 ACK。
 
 本地存储先于数据库：数据库失败可能留下无引用文件，但不会产生指向缺失内容的数据库记录；并发上传相同内容时，rename 冲突会按去重成功处理。RabbitMQ 发布失败不会撤销本地上传。第一阶段尚无 Outbox，因此“数据库成功、消息发布失败”时任务可能丢失，这是后续可靠性阶段需要补齐的边界。
@@ -373,22 +374,21 @@ MySQL 错误处理先区分 Workflow 传输失败与 MySQL ERR Packet。用户�
 
 ## 11. 配置与日志
 
-示例配置：`conf/server.ini.example`。真实配置：`conf/server.ini`（敏感且被忽略）。
+四份示例分别是 `conf/gateway.ini.example`、`conf/user-service.ini.example`、
+`conf/file-service.ini.example` 和 `conf/backup-worker.ini.example`。对应的真实 `.ini` 文件敏感且被忽略。
 
-配置分组：
+进程配置边界：
 
-- `[server]`：`port`、`web_root`。
-- `[database]`：host、port、username、password、database、retry_max。
-- `[auth]`：jwt_secret、jwt_issuer、token_ttl_seconds、password_iterations。
-- `[storage]`：root、max_file_size_bytes。
-- `[oss]`：enabled、region、bucket、key_prefix；`enabled` 是整条 RabbitMQ 异步 OSS 备份链路的唯一开关。
-- `[rabbitmq]`：host、port、username、password、vhost、queue；启用 OSS 备份时必须配置，用户名和密码不会写入配置摘要。
-- `[rpc]`：用户和文件服务公布的 host/port，以及网关 RPC 请求超时；网关的上游地址来自 Consul 查询结果。
-- `[consul]`：HTTP API、数据中心、可选 ACL Token、两个逻辑服务名、TCP 健康检查地址、请求重试和检查时间参数。
-  Docker Desktop 内的 Consul 默认通过 `host.docker.internal` 检查 macOS 宿主机 RPC 端口。
-- `[log]`：level、console、roll_size、roll_files；不再包含旧单体使用的通用 `file` 配置。
-- `[log].worker_file`：Worker 独立日志文件，避免多个进程轮转同一文件。
-- `[log].gateway_file/user_service_file/file_service_file`：第四期三个进程各自的滚动日志文件。
+- `GatewayConfig`：HTTP server、JWT 验证、上传请求大小、RPC 超时、Consul 服务发现和日志。
+- `UserServiceConfig`：MySQL、密码哈希与 JWT 签发、用户 RPC 监听、Consul 注册和日志。
+- `FileServiceConfig`：MySQL、本地存储、由 `[backup].enabled` 控制的 RabbitMQ 发布、文件 RPC 监听、Consul 注册和日志；
+  开关默认开启，但不加载 OSS Region、Bucket 或凭据。
+- `BackupWorkerConfig`：本地存储、RabbitMQ 消费、OSS 和日志；启动 Worker 本身即表示启用备份，不再读取额外开关，
+  也不加载 MySQL、JWT、RPC 或 Consul。
+
+每份 `[log]` 都只含当前进程独占的 `file`，不再在一个配置中维护四个日志路径。网关与用户服务的 JWT 密钥及签发者、
+网关与文件服务的上传大小、文件服务与 Worker 的 `storage.root` 和 RabbitMQ 队列必须成对保持一致。Docker Desktop
+内的 Consul 默认通过 `host.docker.internal` 检查 macOS 宿主机 RPC 端口。
 
 项目约定从项目根目录启动；所有相对路径相对于进程当前工作目录，而不是配置文件目录。
 

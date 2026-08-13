@@ -10,10 +10,10 @@
 namespace webdisk {
 namespace discovery {
 
-ConsulServiceDiscovery::ConsulServiceDiscovery(config::Config::Consul config)
+ConsulServiceDiscovery::ConsulServiceDiscovery(config::Consul config)
     : config_{std::move(config)} {}
 
-common::Result<std::unique_ptr<ConsulServiceDiscovery>> ConsulServiceDiscovery::create(config::Config::Consul config) {
+common::Result<std::unique_ptr<ConsulServiceDiscovery>> ConsulServiceDiscovery::create(config::Consul config) {
     auto discovery = std::unique_ptr<ConsulServiceDiscovery>{new ConsulServiceDiscovery{std::move(config)}};
 
     protocol::ConsulConfig consul_config;

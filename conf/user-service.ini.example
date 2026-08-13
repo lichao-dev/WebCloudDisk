@@ -1,0 +1,60 @@
+; 用户 RPC 服务配置示例
+; 使用前复制为 user-service.ini，并让 [auth] 与 gateway.ini 保持一致
+
+[database]
+; MySQL 数据库服务器地址
+host=127.0.0.1
+port=3306
+username=change_me
+password=change_me
+; 使用的数据库名称
+database=CloudDisk
+; 数据库连接失败时最大重试次数
+retry_max=3
+
+[auth]
+; JWT 签名密钥，用于生成用户登录 Token
+; 生产环境必须使用长度至少 32 字符的随机高强度密钥
+jwt_secret=change_me_to_a_random_secret_at_least_32_characters
+; JWT 签发者，必须与 API 网关保持一致
+jwt_issuer=web-cloud-disk
+; Token 有效时间，单位：秒；3600 表示 1 小时
+token_ttl_seconds=3600
+; PBKDF2-HMAC-SHA256 密码哈希迭代次数
+; 次数越高，密码破解成本越高，但注册和登录计算耗时也会增加
+password_iterations=600000
+
+[rpc]
+; host 是注册到 Consul 后提供给网关连接的地址，port 同时是本进程监听端口
+user_service_host=127.0.0.1
+user_service_port=9601
+
+[consul]
+; Consul HTTP API；当前 macOS Docker 单节点通过宿主机 8500 端口访问
+url=http://127.0.0.1:8500
+datacenter=dc1
+; 本地未启用 ACL 时留空；启用后填写 Consul Token，日志只记录是否已配置
+token=
+; 同一服务的多个实例共享逻辑服务名
+user_service_name=webdisk-user-service
+; Consul Agent 位于 Docker 容器内，检查宿主机 RPC 端口时不能使用 127.0.0.1
+; 如果以后改为 macOS 原生 Consul，可改成 127.0.0.1
+health_check_host=host.docker.internal
+; Consul 请求失败时最大重试次数
+retry_max=3
+health_check_interval_ms=5000
+health_check_timeout_ms=2000
+; 实例持续处于 critical 后由 Consul 自动注销，默认 10 分钟
+deregister_critical_after_ms=600000
+
+[log]
+; 日志级别，可选值通常包括 trace/debug/info/warn/error
+level=info
+; 是否同时输出到控制台
+console=true
+; 当前进程独占的滚动日志文件
+file=./log/cloud_disk_user_service.log
+; 单个日志文件的最大字节数，达到后自动轮转
+roll_size=100000000
+; 最多保留的轮转日志文件数量
+roll_files=5

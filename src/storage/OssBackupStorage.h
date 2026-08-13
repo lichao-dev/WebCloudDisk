@@ -18,7 +18,7 @@ namespace storage {
 
 class OssBackupStorage {
 public:
-    static common::Result<std::unique_ptr<OssBackupStorage>> create(const config::Config::Oss& config);
+    static common::Result<std::unique_ptr<OssBackupStorage>> create(const config::Oss& config);
 
     ~OssBackupStorage();
 

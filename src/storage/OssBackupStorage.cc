@@ -21,7 +21,7 @@ OssBackupStorage::OssBackupStorage(std::string bucket, std::string key_prefix,
 
 OssBackupStorage::~OssBackupStorage() = default;
 
-common::Result<std::unique_ptr<OssBackupStorage>> OssBackupStorage::create(const config::Config::Oss& config) {
+common::Result<std::unique_ptr<OssBackupStorage>> OssBackupStorage::create(const config::Oss& config) {
     if (config.region.empty() || config.bucket.empty()) {
         return common::Result<std::unique_ptr<OssBackupStorage>>::failure(500,
                                                                           "OSS region and bucket must not be empty");

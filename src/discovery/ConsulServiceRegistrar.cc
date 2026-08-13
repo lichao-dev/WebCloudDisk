@@ -46,10 +46,10 @@ common::Result<void> task_result(const ConsulTaskResult& result, const std::stri
 
 } // namespace
 
-ConsulServiceRegistrar::ConsulServiceRegistrar(config::Config::Consul config)
+ConsulServiceRegistrar::ConsulServiceRegistrar(config::Consul config)
     : config_{std::move(config)} {}
 
-common::Result<std::unique_ptr<ConsulServiceRegistrar>> ConsulServiceRegistrar::create(config::Config::Consul config) {
+common::Result<std::unique_ptr<ConsulServiceRegistrar>> ConsulServiceRegistrar::create(config::Consul config) {
     auto registrar = std::unique_ptr<ConsulServiceRegistrar>{new ConsulServiceRegistrar{std::move(config)}};
 
     protocol::ConsulConfig consul_config;

@@ -1,0 +1,39 @@
+; RabbitMQ/OSS 备份 Worker 配置示例
+; 使用前复制为 backup-worker.ini
+
+[storage]
+; Worker 与文件服务部署在同一台机器时必须指向同一份本地存储
+; Worker 根据消息中的文件 SHA-256 从该目录读取待备份文件
+root=./upload
+
+[oss]
+; Worker 不设启用开关；启动本进程即表示启用 OSS 备份
+; Bucket 所在地域，例如 cn-hangzhou
+region=change_me
+bucket=change_me
+; 最终 ObjectKey 为该前缀加文件 SHA-256
+key_prefix=backup/sha256/
+; OSS 凭据不写入本文件，通过 OSS_ACCESS_KEY_ID、OSS_ACCESS_KEY_SECRET
+; 以及可选的 OSS_SESSION_TOKEN 环境变量提供
+
+[rabbitmq]
+; 必须与 file-service.ini 使用相同的 Broker、vhost 和业务队列
+host=127.0.0.1
+port=5672
+username=change_me
+password=change_me
+vhost=/
+; 第一阶段使用默认交换机，队列名同时作为 routing key
+queue=webdisk.oss.backup.v1
+
+[log]
+; 日志级别，可选值通常包括 trace/debug/info/warn/error
+level=info
+; 是否同时输出到控制台
+console=true
+; 当前进程独占的滚动日志文件
+file=./log/cloud_disk_backup_worker.log
+; 单个日志文件的最大字节数，达到后自动轮转
+roll_size=100000000
+; 最多保留的轮转日志文件数量
+roll_files=5

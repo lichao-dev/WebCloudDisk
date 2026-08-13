@@ -21,7 +21,7 @@ public:
     using DiscoverResult = common::Result<std::vector<ServiceEndpoint>>;
     using DiscoverCallback = std::function<void(DiscoverResult)>;
 
-    static common::Result<std::unique_ptr<ConsulServiceDiscovery>> create(config::Config::Consul config);
+    static common::Result<std::unique_ptr<ConsulServiceDiscovery>> create(config::Consul config);
 
     ConsulServiceDiscovery(const ConsulServiceDiscovery&) = delete;
     ConsulServiceDiscovery& operator=(const ConsulServiceDiscovery&) = delete;
@@ -33,9 +33,9 @@ public:
     static DiscoverResult make_endpoints(const std::vector<protocol::ConsulServiceInstance>& instances);
 
 private:
-    explicit ConsulServiceDiscovery(config::Config::Consul config);
+    explicit ConsulServiceDiscovery(config::Consul config);
 
-    config::Config::Consul config_;
+    config::Consul config_;
     WFConsulClient client_;
 };
 

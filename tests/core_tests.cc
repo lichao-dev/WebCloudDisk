@@ -59,109 +59,108 @@ std::filesystem::path make_test_root() {
 void test_config(const std::filesystem::path& root) {
     const auto config_dir = root / "config";
     std::filesystem::create_directories(config_dir);
-    const auto path = config_dir / "server.ini";
-    std::ofstream output(path);
-    output << "[server]\nport=9527\nweb_root=./test-www\n"
-              "[database]\nhost=127.0.0.1\nport=3306\nusername=test\npassword=test\n"
-              "database=CloudDisk\nretry_max=3\n"
-              "[auth]\njwt_secret=01234567890123456789012345678901\n"
-              "jwt_issuer=test\ntoken_ttl_seconds=3600\npassword_iterations=600000\n"
-              "[storage]\nroot=./test-upload\nmax_file_size_bytes=1024\n"
-              "[oss]\nenabled=true\nregion=cn-hangzhou\nbucket=test-backup-bucket\n"
-              "key_prefix=test/backup\n"
-              "[rabbitmq]\nhost=127.0.0.1\nport=5672\nusername=test-user\npassword=test-password\n"
-              "vhost=/test\nqueue=test.oss.backup.v1\n"
-              "[rpc]\nuser_service_host=127.0.0.1\nuser_service_port=9601\n"
-              "file_service_host=127.0.0.1\nfile_service_port=9602\nrequest_timeout_ms=120000\n"
-              "[consul]\nurl=http://127.0.0.1:8500/\ndatacenter=dc1\ntoken=test-consul-token\n"
-              "user_service_name=webdisk-user-service\nfile_service_name=webdisk-file-service\n"
-              "health_check_host=host.docker.internal\nretry_max=3\nhealth_check_interval_ms=5000\n"
-              "health_check_timeout_ms=2000\nderegister_critical_after_ms=600000\n"
-              "[log]\nlevel=info\nconsole=false\nworker_file=./test-log/worker.log\n"
-              "gateway_file=./test-log/gateway.log\nuser_service_file=./test-log/user-service.log\n"
-              "file_service_file=./test-log/file-service.log\n"
-              "roll_size=2048\nroll_files=3\n";
-    output.close();
-
-    auto config = webdisk::config::Config::load(path);
-    assert(config);
-    assert(config.value().server.port == 9527);
     const auto working_dir = std::filesystem::current_path();
-    assert(config.value().server.web_root == (working_dir / "test-www").lexically_normal());
-    assert(config.value().storage.root == (working_dir / "test-upload").lexically_normal());
-    assert(config.value().oss.enabled);
-    assert(config.value().oss.region == "cn-hangzhou");
-    assert(config.value().oss.bucket == "test-backup-bucket");
-    assert(config.value().oss.key_prefix == "test/backup/");
-    assert(config.value().rabbitmq.host == "127.0.0.1");
-    assert(config.value().rabbitmq.port == 5672);
-    assert(config.value().rabbitmq.username == "test-user");
-    assert(config.value().rabbitmq.password == "test-password");
-    assert(config.value().rabbitmq.vhost == "/test");
-    assert(config.value().rabbitmq.queue == "test.oss.backup.v1");
-    assert(config.value().rpc.user_service_host == "127.0.0.1");
-    assert(config.value().rpc.user_service_port == 9601);
-    assert(config.value().rpc.file_service_host == "127.0.0.1");
-    assert(config.value().rpc.file_service_port == 9602);
-    assert(config.value().rpc.request_timeout_ms == 120000);
-    assert(config.value().consul.url == "http://127.0.0.1:8500");
-    assert(config.value().consul.datacenter == "dc1");
-    assert(config.value().consul.token == "test-consul-token");
-    assert(config.value().consul.user_service_name == "webdisk-user-service");
-    assert(config.value().consul.file_service_name == "webdisk-file-service");
-    assert(config.value().consul.health_check_host == "host.docker.internal");
-    assert(config.value().consul.retry_max == 3);
-    assert(config.value().consul.health_check_interval_ms == 5000);
-    assert(config.value().consul.health_check_timeout_ms == 2000);
-    assert(config.value().consul.deregister_critical_after_ms == 600000);
-    assert(!config.value().log.console);
-    assert(config.value().log.worker_file == (working_dir / "test-log" / "worker.log").lexically_normal());
-    assert(config.value().log.gateway_file == (working_dir / "test-log" / "gateway.log").lexically_normal());
-    assert(config.value().log.user_service_file == (working_dir / "test-log" / "user-service.log").lexically_normal());
-    assert(config.value().log.file_service_file == (working_dir / "test-log" / "file-service.log").lexically_normal());
-    assert(config.value().log.roll_size == 2048);
-    assert(config.value().log.roll_files == 3);
+    const auto write_config = [&config_dir](const std::string& name, const std::string& content) {
+        const auto path = config_dir / name;
+        std::ofstream output(path);
+        output << content;
+        output.close();
+        return path;
+    };
 
-    std::ofstream invalid_output(path);
-    invalid_output << "[database]\nhost=127.0.0.1\nusername=test\ndatabase=CloudDisk\n"
-                      "[auth]\njwt_secret=01234567890123456789012345678901\n"
-                      "[oss]\nenabled=true\nregion=\nbucket=test-backup-bucket\n";
-    invalid_output.close();
+    const auto gateway_path = write_config(
+        "gateway.ini", "[server]\nport=9527\nweb_root=./test-www\n"
+                       "[auth]\njwt_secret=01234567890123456789012345678901\njwt_issuer=test\n"
+                       "token_ttl_seconds=invalid-for-gateway\n"
+                       "[storage]\nmax_file_size_bytes=1024\n[rpc]\nrequest_timeout_ms=120000\n"
+                       "[consul]\nurl=http://127.0.0.1:8500/\ndatacenter=dc1\ntoken=test-consul-token\n"
+                       "user_service_name=webdisk-user-service\nfile_service_name=webdisk-file-service\nretry_max=3\n"
+                       "health_check_interval_ms=invalid-for-gateway\n"
+                       "[log]\nlevel=info\nconsole=false\nfile=./test-log/gateway.log\nroll_size=2048\nroll_files=3\n"
+                       "[database]\nport=invalid-unrelated-value\n");
+    auto gateway = webdisk::config::GatewayConfig::load(gateway_path);
+    assert(gateway);
+    assert(gateway.value().server.port == 9527);
+    assert(gateway.value().server.web_root == (working_dir / "test-www").lexically_normal());
+    assert(gateway.value().storage.max_file_size == 1024);
+    assert(gateway.value().rpc.request_timeout_ms == 120000);
+    assert(gateway.value().consul.url == "http://127.0.0.1:8500");
+    assert(gateway.value().log.file == (working_dir / "test-log" / "gateway.log").lexically_normal());
 
-    auto invalid_config = webdisk::config::Config::load(path);
-    assert(!invalid_config);
-    assert(invalid_config.error().message.find("oss.region") != std::string::npos);
+    const auto user_path = write_config(
+        "user-service.ini",
+        "[database]\nhost=127.0.0.1\nport=3306\nusername=test\npassword=test\ndatabase=CloudDisk\n"
+        "retry_max=3\n[auth]\njwt_secret=01234567890123456789012345678901\njwt_issuer=test\n"
+        "token_ttl_seconds=3600\npassword_iterations=600000\n"
+        "[rpc]\nuser_service_host=127.0.0.1\nuser_service_port=9601\n"
+        "[consul]\nurl=http://127.0.0.1:8500\ndatacenter=dc1\nuser_service_name=webdisk-user-service\n"
+        "health_check_host=host.docker.internal\nretry_max=3\nhealth_check_interval_ms=5000\n"
+        "health_check_timeout_ms=2000\nderegister_critical_after_ms=600000\n"
+        "[log]\nconsole=true\nfile=./test-log/user.log\n[storage]\nmax_file_size_bytes=invalid-unrelated-value\n");
+    auto user = webdisk::config::UserServiceConfig::load(user_path);
+    assert(user);
+    assert(user.value().database.database == "CloudDisk");
+    assert(user.value().auth.password_iterations == 600000);
+    assert(user.value().rpc.user_service_port == 9601);
+    assert(user.value().consul.health_check_timeout_ms == 2000);
 
-    std::ofstream local_only_output(path);
-    local_only_output << "[database]\nhost=127.0.0.1\nusername=test\ndatabase=CloudDisk\n"
-                         "[auth]\njwt_secret=01234567890123456789012345678901\n";
-    local_only_output.close();
+    const auto file_path = write_config(
+        "file-service.ini",
+        "[database]\nhost=127.0.0.1\nport=3306\nusername=test\npassword=test\ndatabase=CloudDisk\n"
+        "[storage]\nroot=./test-upload\nmax_file_size_bytes=1024\n[oss]\nregion=invalid-unrelated-value\n"
+        "[rabbitmq]\nhost=127.0.0.1\nport=5672\nusername=test-user\npassword=test-password\n"
+        "vhost=/test\nqueue=test.oss.backup.v1\n[rpc]\nfile_service_host=127.0.0.1\nfile_service_port=9602\n"
+        "[consul]\nurl=http://127.0.0.1:8500\ndatacenter=dc1\nfile_service_name=webdisk-file-service\n"
+        "health_check_host=host.docker.internal\nhealth_check_interval_ms=5000\nhealth_check_timeout_ms=2000\n"
+        "deregister_critical_after_ms=600000\n[log]\nconsole=true\nfile=./test-log/file.log\n");
+    auto file = webdisk::config::FileServiceConfig::load(file_path);
+    assert(file);
+    assert(file.value().storage.root == (working_dir / "test-upload").lexically_normal());
+    assert(file.value().backup_enabled);
+    assert(file.value().rabbitmq.queue == "test.oss.backup.v1");
+    assert(file.value().rpc.file_service_port == 9602);
 
-    auto local_only_config = webdisk::config::Config::load(path);
-    assert(local_only_config);
-    assert(!local_only_config.value().oss.enabled);
-    assert(local_only_config.value().consul.url == "http://127.0.0.1:8500");
-    assert(local_only_config.value().consul.health_check_host == "host.docker.internal");
+    const auto local_file_path =
+        write_config("local-file-service.ini", "[database]\nhost=127.0.0.1\nusername=test\ndatabase=CloudDisk\n"
+                                               "[backup]\nenabled=false\n[rabbitmq]\nport=invalid-unrelated-value\n");
+    auto local_file = webdisk::config::FileServiceConfig::load(local_file_path);
+    assert(local_file);
+    assert(!local_file.value().backup_enabled);
 
-    std::ofstream missing_rabbitmq_output(path);
-    missing_rabbitmq_output << "[database]\nhost=127.0.0.1\nusername=test\ndatabase=CloudDisk\n"
-                               "[auth]\njwt_secret=01234567890123456789012345678901\n"
-                               "[oss]\nenabled=true\nregion=cn-hangzhou\nbucket=test-backup-bucket\n";
-    missing_rabbitmq_output.close();
+    const auto worker_path = write_config(
+        "backup-worker.ini", "[storage]\nroot=./test-upload\n[oss]\nregion=cn-hangzhou\n"
+                             "bucket=test-backup-bucket\nkey_prefix=test/backup\n"
+                             "[rabbitmq]\nhost=127.0.0.1\nport=5672\nusername=test-user\npassword=test-password\n"
+                             "vhost=/test\nqueue=test.oss.backup.v1\n[log]\nconsole=true\nfile=./test-log/worker.log\n"
+                             "[backup]\nenabled=false\n"
+                             "[consul]\nurl=invalid-unrelated-value\n");
+    auto worker = webdisk::config::BackupWorkerConfig::load(worker_path);
+    assert(worker);
+    assert(worker.value().storage.root == (working_dir / "test-upload").lexically_normal());
+    assert(worker.value().oss.key_prefix == "test/backup/");
+    assert(worker.value().rabbitmq.username == "test-user");
 
-    auto missing_rabbitmq_config = webdisk::config::Config::load(path);
-    assert(!missing_rabbitmq_config);
-    assert(missing_rabbitmq_config.error().message.find("rabbitmq.host") != std::string::npos);
+    const auto invalid_file_path =
+        write_config("invalid-file-service.ini",
+                     "[database]\nhost=127.0.0.1\nusername=test\ndatabase=CloudDisk\n[storage]\nroot=./upload\n"
+                     "[backup]\nenabled=true\n[rpc]\nfile_service_host=127.0.0.1\n"
+                     "[consul]\nhealth_check_interval_ms=5000\nhealth_check_timeout_ms=2000\n");
+    auto invalid_file = webdisk::config::FileServiceConfig::load(invalid_file_path);
+    assert(!invalid_file);
+    assert(invalid_file.error().message.find("rabbitmq") != std::string::npos);
 
-    std::ofstream invalid_consul_output(path);
-    invalid_consul_output << "[database]\nhost=127.0.0.1\nusername=test\ndatabase=CloudDisk\n"
-                             "[auth]\njwt_secret=01234567890123456789012345678901\n"
-                             "[consul]\nhealth_check_interval_ms=1000\nhealth_check_timeout_ms=2000\n";
-    invalid_consul_output.close();
+    const auto invalid_user_path = write_config(
+        "invalid-user-service.ini", "[database]\nhost=127.0.0.1\nusername=test\ndatabase=CloudDisk\n"
+                                    "[auth]\njwt_secret=01234567890123456789012345678901\n"
+                                    "[consul]\nhealth_check_interval_ms=1000\nhealth_check_timeout_ms=2000\n");
+    auto invalid_user = webdisk::config::UserServiceConfig::load(invalid_user_path);
+    assert(!invalid_user);
+    assert(invalid_user.error().message.find("health_check_timeout_ms") != std::string::npos);
 
-    auto invalid_consul_config = webdisk::config::Config::load(path);
-    assert(!invalid_consul_config);
-    assert(invalid_consul_config.error().message.find("health_check_timeout_ms") != std::string::npos);
+    const auto invalid_worker_path = write_config("invalid-worker.ini", "[oss]\nregion=cn-hangzhou\n");
+    auto invalid_worker = webdisk::config::BackupWorkerConfig::load(invalid_worker_path);
+    assert(!invalid_worker);
+    assert(invalid_worker.error().message.find("oss.region and oss.bucket") != std::string::npos);
 }
 
 void test_backup_task_message() {
@@ -186,7 +185,7 @@ void test_backup_task_message() {
 void test_consul_service_identity() {
     using webdisk::discovery::ConsulServiceRegistrar;
 
-    auto registrar = ConsulServiceRegistrar::create(webdisk::config::Config::Consul{});
+    auto registrar = ConsulServiceRegistrar::create(webdisk::config::Consul{});
     assert(registrar);
     assert(registrar.value()->instance_id().empty());
     assert(registrar.value()->deregister_service());
@@ -278,8 +277,7 @@ void test_oss_backup_storage(const std::filesystem::path& root) {
     access_key_secret.unset();
     session_token.unset();
 
-    webdisk::config::Config::Oss config;
-    config.enabled = true;
+    webdisk::config::Oss config;
     config.region = "cn-hangzhou";
     config.bucket = "test-backup-bucket";
 
@@ -299,11 +297,11 @@ void test_oss_backup_storage(const std::filesystem::path& root) {
 }
 
 void test_logging(const std::filesystem::path& root) {
-    webdisk::config::Config::Log invalid_config;
+    webdisk::config::Log invalid_config;
     invalid_config.level = "invalid";
     assert(!webdisk::log::Log::init(invalid_config));
 
-    webdisk::config::Config::Log log_config;
+    webdisk::config::Log log_config;
     log_config.level = "debug";
     log_config.console = false;
     log_config.file = root / "log" / "test.log";
@@ -314,18 +312,18 @@ void test_logging(const std::filesystem::path& root) {
     LOG_DEBUG("debug log test: {}", 42);
     LOG_ERROR("error log test");
 
-    webdisk::config::Config app_config;
-    app_config.log = log_config;
-    app_config.database.username = "private-db-user";
-    app_config.database.password = "private-db-password";
-    app_config.auth.jwt_secret = "private-jwt-secret";
-    app_config.oss.enabled = true;
-    app_config.oss.region = "cn-hangzhou";
-    app_config.oss.bucket = "test-backup-bucket";
-    app_config.rabbitmq.username = "private-rabbitmq-user";
-    app_config.rabbitmq.password = "private-rabbitmq-password";
-    app_config.consul.token = "private-consul-token";
-    const std::string config_text = app_config.to_string();
+    webdisk::config::UserServiceConfig user_config;
+    user_config.log = log_config;
+    user_config.database.username = "private-db-user";
+    user_config.database.password = "private-db-password";
+    user_config.auth.jwt_secret = "private-jwt-secret";
+    user_config.consul.token = "private-consul-token";
+    webdisk::config::BackupWorkerConfig worker_config;
+    worker_config.oss.region = "cn-hangzhou";
+    worker_config.oss.bucket = "test-backup-bucket";
+    worker_config.rabbitmq.username = "private-rabbitmq-user";
+    worker_config.rabbitmq.password = "private-rabbitmq-password";
+    const std::string config_text = user_config.to_string() + " " + worker_config.to_string();
     LOG_INFO("Configuration: {}", config_text);
     webdisk::log::Log::shutdown();
 
@@ -338,11 +336,11 @@ void test_logging(const std::filesystem::path& root) {
     const std::string content((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
     assert(content.find("debug log test: 42") != std::string::npos);
     assert(content.find("error log test") != std::string::npos);
-    assert(content.find("Configuration: server{") != std::string::npos);
+    assert(content.find("Configuration: database{") != std::string::npos);
     assert(content.find("username_configured=true") != std::string::npos);
     assert(content.find("password_configured=true") != std::string::npos);
     assert(content.find("jwt_secret_configured=true") != std::string::npos);
-    assert(content.find("oss{enabled=true") != std::string::npos);
+    assert(content.find("oss{region=cn-hangzhou") != std::string::npos);
     assert(content.find("credentials_provider=environment") != std::string::npos);
     assert(content.find("rabbitmq{host=") != std::string::npos);
     assert(content.find("consul{url=") != std::string::npos);

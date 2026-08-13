@@ -30,7 +30,7 @@ void signal_handler(int) {
 webdisk::common::Result<std::filesystem::path> parse_config_path(int argc, char* argv[]) {
     if (argc != 3 || std::string_view(argv[1]) != "--config" || std::string_view(argv[2]).empty()) {
         return webdisk::common::Result<std::filesystem::path>::failure(
-            500, "Usage: cloud_disk_file_service --config <server.ini>");
+            500, "Usage: cloud_disk_file_service --config <file-service.ini>");
     }
     return webdisk::common::Result<std::filesystem::path>::success(argv[2]);
 }
@@ -44,16 +44,14 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    auto config_result = webdisk::config::Config::load(config_path.value());
+    auto config_result = webdisk::config::FileServiceConfig::load(config_path.value());
     if (!config_result) {
         std::cerr << config_result.error().message << '\n';
         return 1;
     }
-    webdisk::config::Config config = config_result.take_value();
+    webdisk::config::FileServiceConfig config = config_result.take_value();
 
-    webdisk::config::Config::Log log_config = config.log;
-    log_config.file = log_config.file_service_file;
-    auto log_result = webdisk::log::Log::init(log_config);
+    auto log_result = webdisk::log::Log::init(config.log);
     if (!log_result) {
         std::cerr << log_result.error().message << '\n';
         return 1;
@@ -71,11 +69,11 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // OSS 备份启用时，通过 RabbitMQ 异步发布备份任务。
+    // [backup].enabled 开启时，通过 RabbitMQ 异步发布备份任务。
     // publisher 必须比 file_service 生命周期更长，因为 FileService 内部仅保存其非拥有指针。
     std::unique_ptr<webdisk::messaging::RabbitMqBackupTaskPublisher> backup_task_publisher;
     webdisk::service::FileService file_service{files, storage, config.storage.max_file_size};
-    if (config.oss.enabled) {
+    if (config.backup_enabled) {
         auto publisher_result = webdisk::messaging::RabbitMqBackupTaskPublisher::create(config.rabbitmq);
         if (!publisher_result) {
             LOG_ERROR("Backup publisher initialization failed: status={}", publisher_result.error().status_code);

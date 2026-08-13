@@ -29,7 +29,7 @@ RabbitMqBackupTaskPublisher::RabbitMqBackupTaskPublisher(std::unique_ptr<Impl> i
 RabbitMqBackupTaskPublisher::~RabbitMqBackupTaskPublisher() = default;
 
 common::Result<std::unique_ptr<RabbitMqBackupTaskPublisher>>
-RabbitMqBackupTaskPublisher::create(const config::Config::RabbitMq& config) {
+RabbitMqBackupTaskPublisher::create(const config::RabbitMq& config) {
     try {
         AmqpClient::Channel::OpenOpts options;
         options.host = config.host;
