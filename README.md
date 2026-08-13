@@ -1,6 +1,7 @@
 # WebCloudDisk
 
-WebCloudDisk 是一个使用 C++17 开发的 Web 网盘后端。项目采用单体架构，基于 wfrest、Workflow 和 MySQL，实现用户认证、本地文件上传、查询和下载，并使用阿里云 OSS 提供可选的容灾备份。
+WebCloudDisk 是一个使用 C++17 开发的 Web 网盘后端。第四期采用一个 wfrest HTTP API 网关和两个基于
+sRPC/Protobuf 的后端服务，实现用户认证、本地文件上传、查询和下载，并使用阿里云 OSS 提供可选的容灾备份。
 
 > 本地磁盘始终是主存储；启用 OSS 与 RabbitMQ 后，Web 服务发布备份任务，独立 Worker 异步上传 OSS。文件删除和文件分享等功能留到后续阶段扩展。
 
@@ -22,6 +23,7 @@ WebCloudDisk 是一个使用 C++17 开发的 Web 网盘后端。项目采用单�
 | --- | --- |
 | 语言与构建 | C++17、CMake |
 | HTTP 与异步任务 | wfrest、Workflow |
+| RPC 与接口定义 | sRPC 0.10.4、Protobuf |
 | 数据库 | MySQL 8.0 |
 | 配置与 JSON | inih、nlohmann/json |
 | 认证与安全 | jwt-cpp、OpenSSL、PBKDF2-HMAC-SHA256、SHA-256 |
@@ -35,28 +37,32 @@ WebCloudDisk 是一个使用 C++17 开发的 Web 网盘后端。项目采用单�
 WebCloudDisk/
 ├── conf/           # 服务配置文件示例
 ├── docs/           # 需求说明和第三方库文档
+├── proto/          # 公共消息、用户服务和文件服务 RPC 协议
 ├── sql/            # 数据库迁移脚本
 ├── src/
-│   ├── app/        # 应用组装、路由注册和生命周期管理
 │   ├── common/     # 通用返回值类型
 │   ├── config/     # INI 配置加载和校验
 │   ├── database/   # Workflow MySQL 客户端封装
-│   ├── http/       # HTTP Handler、中间件和响应构造
+│   ├── file_service/ # 文件 RPC 服务进程入口
+│   ├── gateway/    # HTTP API 网关
+│   ├── http/       # 网关使用的认证中间件和统一响应构造
 │   ├── log/        # spdlog 封装
 │   ├── messaging/  # 备份任务消息和 RabbitMQ 发布器
 │   ├── model/      # 业务数据模型
 │   ├── repository/ # MySQL 数据访问层
+│   ├── rpc/        # sRPC 服务端实现
 │   ├── security/   # 密码、JWT 和文件哈希
-│   ├── server/     # Web 服务进程入口
 │   ├── service/    # 业务逻辑层
 │   ├── storage/    # 本地主存储和 OSS 备份实现
+│   ├── user_service/ # 用户 RPC 服务进程入口
 │   └── worker/     # Worker 进程入口和 RabbitMQ 备份任务消费者
 ├── tests/          # 单元测试
 ├── third_party/    # 第三方库源码及本地构建产物
 └── www/            # 静态 Web 资源
 ```
 
-主要调用方向是：`HTTP Handler -> Service -> Repository / Storage`。`Application` 负责集中组装这些组件，避免把应用生命周期和依赖关系分散到 `main()` 中。
+第四期主要调用方向是：`HTTP -> API Gateway -> sRPC -> User/File Service -> Repository / Storage`。JWT 在网关
+校验，用户服务负责注册、登录和用户查询，文件服务负责列表、上传、下载以及第一阶段 RabbitMQ 备份任务发布。
 
 ## 准备环境
 
@@ -69,6 +75,11 @@ sudo apt install -y build-essential cmake libssl-dev zlib1g-dev libboost-all-dev
 
 项目依赖的第三方源码位于 `third_party/`。首次构建或把项目迁移到另一台机器后，需要按照 [第三方库编译与迁移指南](docs/第三方库编译与迁移指南.md) 先编译 Workflow 和 wfrest；不要直接复用其他机器或旧路径下生成的 CMake 缓存。
 spdlog、OSS SDK、rabbitmq-c 和 SimpleAmqpClient 由主项目 CMake 按依赖顺序编译，不需要提前安装到系统目录。
+macOS 还需要先用 Homebrew 安装 Protobuf、Snappy 和 LZ4，并按指南将 sRPC 编译到 `third_party/srpc`，不安装到系统：
+
+```bash
+brew install protobuf snappy lz4 openssl@3
+```
 
 ## 初始化数据库
 
@@ -97,6 +108,7 @@ cp conf/server.ini.example conf/server.ini
 - `[auth]` 中的 JWT 密钥；生产环境应使用长度不少于 32 字符的随机密钥
 - 需要 OSS 异步备份时，同时启用 `[oss]` 和 `[rabbitmq]`，并配置 RabbitMQ 连接信息
 - 按实际环境调整存储目录、日志目录、端口和上传大小限制
+- `[rpc]` 默认让网关连接本机 `9601` 用户服务和 `9602` 文件服务；同机开发通常无需修改
 
 `conf/server.ini` 包含敏感信息，已被 Git 忽略，不应提交。配置中的 `./www`、`./upload` 和 `./log/...` 等相对路径，都以程序启动时的工作目录为基准，因此项目约定从项目根目录启动服务。
 
@@ -112,6 +124,13 @@ ctest --test-dir build --output-on-failure
 ```
 
 `cloud_disk_rabbitmq_client_tests` 只验证客户端静态库能够创建和读取 AMQP 消息，不连接 RabbitMQ Broker。
+`cloud_disk_rpc_protocol_tests` 验证用户和文件 Protobuf 消息，其中包括含 `\0` 字节的文件内容。
+
+启动两个 RPC 服务后，可以执行不访问 MySQL 业务数据的连通性检查：
+
+```bash
+./build/bin/cloud_disk_rpc_smoke_test --config conf/server.ini
+```
 
 需要验证正式发布器、真实 Broker、消息属性、消费和手动 ACK，但不访问 OSS 时，执行：
 
@@ -160,25 +179,30 @@ cmake --build build --target cloud_disk_oss_smoke_test
 根据内容哈希读取同一台机器上的本地文件，上传 OSS 成功后手动确认消息。第一阶段尚未实现 Transactional Outbox、
 延迟重试、死信队列和断线重连，因此 RabbitMQ 发布失败只记录日志，不会撤销已经完成的本地上传。
 
-服务程序生成在 `build/bin/cloud_disk_server`。如需将编译好的服务程序复制到项目根目录的 `bin/`，执行：
+服务程序生成在 `build/bin/`。如需将编译好的服务程序复制到项目根目录的 `bin/`，执行：
 
 ```bash
 cmake --install build --prefix "$PWD"
 ```
 
-安装后的程序为 `bin/cloud_disk_server` 和 `bin/cloud_disk_backup_worker`；测试程序仍只保留在 `build/bin/`。项目根目录的 `bin/` 已被 Git 忽略。如果项目目录发生移动，建议删除旧构建目录后重新执行 CMake 配置，避免缓存仍然引用旧路径。
+安装结果包含 API 网关、用户 RPC 服务、文件 RPC 服务和备份 Worker；测试程序仍只保留在
+`build/bin/`。项目根目录的 `bin/` 已被 Git 忽略。如果项目目录发生移动，建议删除旧构建目录后重新执行 CMake
+配置，避免缓存仍然引用旧路径。
 
 ## 启动和停止
 
-两个进程必须从同一个项目根目录启动，以共享 `storage.root`。先确保 RabbitMQ Broker 已运行，然后分别在两个终端执行：
+第四期开发模式需要从项目根目录启动三个服务进程。启用 OSS 备份时还要先确保 RabbitMQ Broker 已运行，并启动
+备份 Worker：
 
 ```bash
+./bin/cloud_disk_user_service --config conf/server.ini
+./bin/cloud_disk_file_service --config conf/server.ini
+./bin/cloud_disk_api_gateway --config conf/server.ini
 ./bin/cloud_disk_backup_worker --config conf/server.ini
-./bin/cloud_disk_server --config conf/server.ini
 ```
 
-Worker 需要继承 `OSS_ACCESS_KEY_ID`、`OSS_ACCESS_KEY_SECRET` 和可选的 `OSS_SESSION_TOKEN` 环境变量。默认 HTTP
-监听端口为 `9527`；两个进程都可通过 `Ctrl+C` 正常停止。
+默认端口分别为 HTTP `9527`、用户 RPC `9601`、文件 RPC `9602`。所有进程都可通过 `Ctrl+C` 正常停止。Worker
+需要继承 `OSS_ACCESS_KEY_ID`、`OSS_ACCESS_KEY_SECRET` 和可选的 `OSS_SESSION_TOKEN` 环境变量。
 
 ## HTTP API
 

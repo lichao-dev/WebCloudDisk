@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package webdisk.rpc;
+
+import "proto/common.proto";
+
+message ListFilesRequest {
+  uint64 user_id = 1;
+}
+
+message ListFilesResponse {
+  RpcStatus status = 1;
+  repeated FileInfo files = 2;
+}
+
+message UploadFileRequest {
+  uint64 user_id = 1;
+  string filename = 2;
+  bytes content = 3;
+}
+
+message UploadFileResponse {
+  RpcStatus status = 1;
+  uint64 file_id = 2;
+  string filename = 3;
+}
+
+message DownloadFileRequest {
+  uint64 user_id = 1;
+  uint64 file_id = 2;
+}
+
+message DownloadFileResponse {
+  RpcStatus status = 1;
+  string filename = 2;
+  bytes content = 3;
+}
+
+service FileRpcService {
+  rpc ListFiles(ListFilesRequest) returns (ListFilesResponse);
+  rpc UploadFile(UploadFileRequest) returns (UploadFileResponse);
+  rpc DownloadFile(DownloadFileRequest) returns (DownloadFileResponse);
+}

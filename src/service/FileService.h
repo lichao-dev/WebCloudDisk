@@ -6,9 +6,8 @@
 #include <string>
 #include <vector>
 
-#include <wfrest/HttpServer.h>
-
 #include "common/Result.h"
+#include "common/TaskScheduler.h"
 #include "messaging/RabbitMqBackupTaskPublisher.h"
 #include "model/FileInfo.h"
 #include "repository/FileRepository.h"
@@ -35,12 +34,13 @@ public:
 
     FileService(const repository::FileRepository& files, storage::FileStorage& storage, uint64_t max_file_size);
 
-    // Application 在路由注册前注入可选任务发布器；传入 nullptr 表示只使用本地主存储。
+    // 文件 RPC 服务在启动前注入可选任务发布器；传入 nullptr 表示只使用本地主存储。
     void set_backup_task_publisher(messaging::RabbitMqBackupTaskPublisher* backup_task_publisher);
-    void list(uint64_t user_id, wfrest::HttpResp* response, ListCallback callback) const;
+    void list(uint64_t user_id, const common::TaskScheduler& scheduler, ListCallback callback) const;
     void upload(uint64_t user_id, const std::string& untrusted_filename, const std::string& content,
-                wfrest::HttpResp* response, UploadCallback callback) const;
-    void find_download(uint64_t user_id, uint64_t file_id, wfrest::HttpResp* response, DownloadCallback callback) const;
+                const common::TaskScheduler& scheduler, UploadCallback callback) const;
+    void find_download(uint64_t user_id, uint64_t file_id, const common::TaskScheduler& scheduler,
+                       DownloadCallback callback) const;
 
 private:
     // 把文件名清理成安全、合法、适合存储或使用的形式

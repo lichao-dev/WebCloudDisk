@@ -1,6 +1,6 @@
 # WebCloudDisk 项目上下文
 
-> 更新时间：2026-08-12
+> 更新时间：2026-08-13
 > 当前项目路径：`/Users/lichao/workspace/projects/WebCloudDisk`
 > 目标：让新的 Codex 对话先阅读本文件，再基于当前 checkout 和实时 Git 状态继续工作。
 
@@ -16,8 +16,10 @@ WebCloudDisk 是一个 C++17 Web 网盘项目。第三期 RabbitMQ 异步 OSS �
 - 可选的 RabbitMQ 异步 OSS 备份；本地磁盘仍是主存储。
 - INI 配置加载与校验。
 - 统一 JSON API 响应、错误传播和日志。
+- 第四期第一版微服务拆分：HTTP API 网关、用户 sRPC 服务和文件 sRPC 服务。
+- Protobuf 协议自动生成、项目内 sRPC 静态链接，以及 macOS 本机三进程联调。
 
-当前尚未实现 Docker/Compose 项目部署、Transactional Outbox、延迟重试、死信队列、RabbitMQ 自动重连、微服务、文件删除和分享。本地文件丢失后的 OSS 恢复也留待后续完成。
+当前尚未实现 Docker/Compose 项目部署、Transactional Outbox、延迟重试、死信队列、RabbitMQ 自动重连、服务注册发现、文件删除和分享。本地文件丢失后的 OSS 恢复也留待后续完成。
 
 需求主文档：`docs/Web网盘项目-Markdown/Web网盘项目.md`：
 
@@ -25,12 +27,13 @@ WebCloudDisk 是一个 C++17 Web 网盘项目。第三期 RabbitMQ 异步 OSS �
 - 第 2 章 Docker 当前是学习和后续容器化准备，仓库里还没有项目 Dockerfile、Compose 或镜像构建流程。
 - 第 3 章 OSS 保留“本地为主、OSS 容灾备份”的结构，实际上传已经迁移到独立 Worker。
 - 第 4 章 RabbitMQ 已完成第一阶段生产者、持久化队列、消费者和手动确认链路。
+- 第 5 章已完成第一版固定地址微服务：网关调用用户和文件两个 sRPC 服务；第 6 章 Consul 尚未开始。
 
 ## 2. 当前 Git 与工作区状态
 
 - 当前分支：`main`。
-- 当前基线提交：`e0336ec Implement RabbitMQ asynchronous OSS backup`。
-- RabbitMQ 异步 OSS 备份第一阶段已提交；后续未提交修改的具体状态始终以实时 `git status` 和 `git diff` 为准。
+- 当前基线提交：`af7339b Prepare macOS sRPC microservice development`。
+- RabbitMQ 异步 OSS 备份第一阶段和 sRPC 0.10.4 源码已提交；第四期微服务实现尚未提交，具体状态始终以实时 `git status` 和 `git diff` 为准。
 - OSS 配置、RabbitMQ 发布与消费、真实 Broker 冒烟、真实 Bucket 备份和 HTTP 上传链路均已完成验证。
 - 未提交修改同样视为用户当前工作成果；不要覆盖、还原或重置。
 - `conf/server.ini`、`log/`、`upload/`、`build/` 和 `compile_commands.json` 已在 `.gitignore` 中忽略。
@@ -38,20 +41,18 @@ WebCloudDisk 是一个 C++17 Web 网盘项目。第三期 RabbitMQ 异步 OSS �
 
 ## 3. 架构与调用方向
 
-项目采用分层单体结构：
+第四期默认运行结构：
 
 ```text
-main
+HTTP Client
   ↓
-Application
-  ↓
-HTTP Handler / Middleware
-  ↓
-Service
-  ↓
-Repository / FileStorage / RabbitMqBackupTaskPublisher
-  ↓
-MySqlClient / 本地文件系统 / RabbitMQ
+cloud_disk_api_gateway (wfrest :9527)
+  ├─ UserRpcService → cloud_disk_user_service (:9601)
+  │                    ↓
+  │                  AuthService / UserService → UserRepository → MySQL
+  └─ FileRpcService → cloud_disk_file_service (:9602)
+                       ↓
+                     FileService → FileRepository / FileStorage / RabbitMQ
 
 cloud_disk_backup_worker
   ↓
@@ -60,66 +61,71 @@ RabbitMQ / FileStorage / OssBackupStorage
 本地文件系统 / OSS
 ```
 
+旧的 `cloud_disk_server`、`Application` 和单体 HTTP Handler 已删除；HTTP 请求只通过 API 网关进入系统。
+
 各目录职责：
 
-- `src/app`：`Application` 组装组件、保证依赖生命周期、注册路由并启动/停止服务器；不是单例。
 - `src/config`：通过 inih 加载、严格校验 INI，并解析相对于进程工作目录的路径。
 - `src/common`：`Result<T>`、`Result<void>` 和 `AppError`。
 - `src/database`：封装 Workflow MySQL 任务创建、连接 URL 和 SQL 字符串转义。
-- `src/http`：认证中间件、请求解析、Handler 和统一 API 响应。
+- `src/http`：网关使用的认证中间件和统一 API 响应。
+- `src/gateway`：HTTP API 网关、REST 到 sRPC 的协议转换和进程入口。
 - `src/log`：同步 spdlog 初始化、关闭和 `LOG_*` 宏。
 - `src/messaging`：备份任务 JSON 契约、发布接口和 RabbitMQ 发布器。
 - `src/model`：`User`、`FileInfo`、`AuthContext` 等跨层数据模型。
 - `src/repository`：生成 SQL、解析 MySQL 结果、把底层错误转换为 `Result`。
+- `src/rpc`：用户和文件 sRPC 服务端实现。
 - `src/security`：PBKDF2 密码哈希、JWT、SHA-256。
-- `src/server`：`cloud_disk_server` 进程入口，负责配置、日志、信号和 Web 应用生命周期。
 - `src/service`：注册、登录、用户查询和文件业务规则。
 - `src/storage`：具体的本地内容寻址主存储、备份接口和 OSS 备份实现。
+- `src/user_service`、`src/file_service`：两个 RPC 服务的进程入口和依赖组装。
 - `src/worker`：`cloud_disk_backup_worker` 进程入口、RabbitMQ 消费循环、消息校验、OSS 上传和手动确认。
 - `tests`：核心组件测试，不依赖真实 MySQL。
 
-关键依赖关系由 `Application` 成员声明顺序和构造函数初始化顺序保证：
+三个服务进程分别在各自的 `main()` 中组装依赖：
 
 ```text
 Config
-  ├─ MySqlClient
-  │   ├─ UserRepository
-  │   └─ FileRepository
-  ├─ PasswordHasher
-  ├─ JwtService
-  ├─ FileStorage
-  └─ RabbitMqBackupTaskPublisher（可选）
-       ↓
-Service
-  ↓
-Middleware / Handler
-  ↓
-wfrest::HttpServer
+  ├─ API Gateway
+  │   ├─ JwtService / AuthMiddleware
+  │   ├─ UserRpcService client
+  │   └─ FileRpcService client
+  ├─ User RPC Service
+  │   ├─ MySqlClient / UserRepository
+  │   ├─ PasswordHasher / JwtService
+  │   └─ AuthService / UserService
+  └─ File RPC Service
+      ├─ MySqlClient / FileRepository
+      ├─ FileStorage / FileService
+      └─ RabbitMqBackupTaskPublisher（可选）
 ```
 
 独立的 `cloud_disk_backup_worker` 持有 `FileStorage`、`OssBackupStorage` 和 RabbitMQ 消费连接；Web 服务不再创建 OSS 客户端或持有 OSS 凭据。
 
 ## 4. 启动与停止
 
-启动命令必须写全：
+第四期三个服务进程的启动命令必须写全：
 
 ```bash
-./build/bin/cloud_disk_server --config conf/server.ini
+./build/bin/cloud_disk_user_service --config conf/server.ini
+./build/bin/cloud_disk_file_service --config conf/server.ini
+./build/bin/cloud_disk_api_gateway --config conf/server.ini
 ```
 
-只执行 `./cloud_disk_server` 或参数数量不等于 3 会报用法错误并退出。
+只执行程序名或参数数量不等于 3 会报用法错误并退出。默认 HTTP、用户 RPC、文件 RPC 端口分别是
+`9527`、`9601`、`9602`。
 
-`main()` 的顺序：
+各进程 `main()` 的共同顺序：
 
 1. 解析 `--config <path>`。
 2. `Config::load()`。
 3. `Log::init()`。
 4. 记录去敏后的 `Config::to_string()`。
-5. 创建 `Application` 并执行 `init()`。
+5. 组装网关或 RPC 服务依赖。
 6. 注册 `SIGINT`、`SIGTERM`。
-7. 启动 HTTP 服务。
+7. 启动 HTTP 或 sRPC 服务。
 8. 主线程在 `WFFacilities::WaitGroup{1}.wait()` 上等待。
-9. 信号处理函数调用 `done()`，主线程继续执行 `Application::stop()` 和日志关闭。
+9. 信号处理函数调用 `done()`，主线程继续执行服务停止和日志关闭。
 
 `WaitGroup` 不创建线程；它只是阻塞主线程。`{1}` 表示一次 `done()` 即可解除等待。
 
@@ -172,7 +178,7 @@ Worker 通过带 1 秒超时的 `BasicConsumeMessage()` 等待消息，因此能
 - 当前前端用 `for...of` 配合 `await` 逐个上传，因此下一请求会等上一请求收到响应后再发出。后端对一般并发请求仍不保证“先收到就先入库”。
 - wfrest 解析后将表单字段表示为键值映射；文件字段的值包含原始文件名和文件内容。
 
-`AuthHandler` 使用 nlohmann/json 的无异常解析：
+`GatewayApplication` 使用 nlohmann/json 的无异常解析：
 
 ```cpp
 nlohmann::json::parse(request->body(), nullptr, false)
@@ -232,20 +238,23 @@ MySQL 调用链：
 ```text
 当前业务线程创建 WFMySQLTask
   ↓
-response->add_task(task) 加入当前 HTTP 请求序列
+TaskScheduler::add_task(task) 加入当前 RPC 请求序列
   ↓
 Poller 执行 MySQL 网络收发（SQL 真正在 MySQL 服务端执行）
   ↓
-Handler 执行 WFMySQLTask 完成回调
+当前 RPC 序列执行 WFMySQLTask 完成回调
   ↓
 Repository 将原始任务转换为 Result
   ↓
-Service/Handler 回调在同一调用栈继续生成响应
+Repository/Service 回调在同一调用栈继续生成响应
 ```
 
-`create_mysql_task()` 只创建任务并保存回调，不会立即调用回调。任务必须被 `response->add_task(task)` 或 `task->start()` 调度；完成回调一定发生在任务被加入并实际执行之后。`add_task()` 是把任务追加到当前 HTTP 请求的 Workflow 序列，不是立即在当前线程执行。
+`create_mysql_task()` 只创建任务并保存回调，不会立即调用回调。任务必须被加入 Workflow 序列或显式
+`task->start()` 后才会调度。`common::TaskScheduler` 把 Service 与具体请求上下文解耦：RPC 实现通过
+`RPCContext::get_series()` 将数据库或计算任务追加到当前 RPC 序列，业务规则和 Repository 无需了解 sRPC。
 
-登录流程可能经历多次线程角色切换：Handler 创建 MySQL 任务 → Poller 负责网络事件 → Handler 执行查询回调 → Compute 验证 PBKDF2；若需要升级密码哈希，还会再追加更新数据库任务并回到 Poller/Handler。SQL 本身由 MySQL 服务端执行。
+登录流程可能经历多次线程角色切换：RPC 服务创建 MySQL 任务 → Poller 负责网络事件 → 查询回调继续业务流程 →
+Compute 验证 PBKDF2；若需要升级密码哈希，还会再追加更新数据库任务。SQL 本身由 MySQL 服务端执行。
 
 `success()`/`error()` 只设置 `HttpResp`；Workflow 会在当前请求任务序列完成后发送最终响应。
 
@@ -344,8 +353,10 @@ MySQL 错误处理先区分 Workflow 传输失败与 MySQL ERR Packet。用户�
 - `[storage]`：root、max_file_size_bytes。
 - `[oss]`：enabled、region、bucket、key_prefix；`enabled` 是整条 RabbitMQ 异步 OSS 备份链路的唯一开关。
 - `[rabbitmq]`：host、port、username、password、vhost、queue；启用 OSS 备份时必须配置，用户名和密码不会写入配置摘要。
-- `[log]`：level、console、file、roll_size、roll_files。
-- `[log].worker_file`：Worker 独立日志文件，避免两个进程轮转同一文件。
+- `[rpc]`：用户服务和文件服务的 host/port；当前为固定地址，第五期 Consul 尚未实现。
+- `[log]`：level、console、roll_size、roll_files；不再包含旧单体使用的通用 `file` 配置。
+- `[log].worker_file`：Worker 独立日志文件，避免多个进程轮转同一文件。
+- `[log].gateway_file/user_service_file/file_service_file`：第四期三个进程各自的滚动日志文件。
 
 项目约定从项目根目录启动；所有相对路径相对于进程当前工作目录，而不是配置文件目录。
 
@@ -375,6 +386,8 @@ LOG_CRITICAL(...)
 - 阿里云 OSS C++ SDK V2：由主项目 CMake 通过 `add_subdirectory()` 编译。
 - rabbitmq-c 0.18.0：由主项目 CMake 编译为静态库。
 - SimpleAmqpClient 2.6.0：由主项目 CMake 编译为静态库，并链接同一构建树中的 rabbitmq-c target。
+- sRPC 0.10.4：源码位于 `third_party/srpc`，使用项目内 `libsrpc.a` 和 `srpc_generator`，不安装到系统。
+- Protobuf 35.1、Snappy 1.2.2、LZ4 1.10.0：由 macOS Homebrew 提供；CMake 从当前 `protoc` 前缀查找。
 - 系统依赖：OpenSSL、zlib、Threads、Boost chrono。
 
 标准构建命令：
@@ -390,13 +403,14 @@ ctest --test-dir build --output-on-failure
 
 如果移动了项目路径，必须删除或换用新的 build 目录重新配置；不要复用记录旧绝对路径的 CMakeCache。
 
-需要提前编译的第三方库顺序为：Workflow → wfrest。wfrest 配置时需要：
+需要提前编译的第三方库顺序为：Workflow → wfrest → sRPC。wfrest 配置时需要：
 
 ```bash
 -DWorkflow_DIR="${PROJECT_ROOT}/third_party/workflow"
 ```
 
-详细说明见 `docs/第三方库编译与迁移指南.md`。
+macOS 上 sRPC 只构建 `srpc-static` 和 `srpc_generator`，并使用 C++17 兼容 Homebrew Protobuf；详细说明见
+`docs/第三方库编译与迁移指南.md`。
 
 ## 13. 代码风格与既定偏好
 
@@ -407,22 +421,24 @@ ctest --test-dir build --output-on-failure
 - 对复杂控制流、异步顺序、安全边界、存储一致性和重要假设写简洁注释；不要给显而易见代码添加逐行解释。
 - 对话中已经为多个关键函数和条件补充就地注释；“为项目自身 `src/` 下每个 `class` 顶部添加一句简短职责注释”尚未全量完成，如继续做必须先扫描现状且不要改第三方库。
 - 预期失败使用 `Result`/普通分支，不依赖异常控制流程。第三方库真正抛出的异常可以在边界捕获并转换。
-- `Application`、`Log` 等都不是项目自建单例；依赖和生命周期由对象组合管理。
+- `GatewayApplication`、RPC 服务实现和 `Log` 都不是项目自建单例；依赖和生命周期由各进程对象组合管理。
 - 保留 `std::move(callback)` 以转移异步回调所有权。捕获列表中的 `callback = std::move(callback)` 本身不要求 `mutable`；只有 Lambda 函数体内需要修改或再次移动按值捕获对象时才需要。当前仅 `AuthService.cc` 保留 3 处必要的 `mutable`。
 - 不要把敏感配置、MySQL URL、密码哈希原始材料或 JWT 密钥写入日志。
 
 ## 14. 当前已验证状态与待处理事项
 
-2026-08-12 在全新临时构建目录对当前工作区验证：
+2026-08-12 对当前工作区验证：
 
 - Debug 配置和完整构建成功，rabbitmq-c 与 SimpleAmqpClient 均生成静态库。
 - spdlog 由主项目编译到 `build/third_party/spdlog/`，Debug 产物为 `libspdlogd.a`，Release 产物为 `libspdlog.a`，不再依赖源码目录中的预编译产物。
-- `ctest --test-dir <build> --output-on-failure` 通过，共 `2/2` 个测试。
-- 安装结果包含 `bin/cloud_disk_server` 和 `bin/cloud_disk_backup_worker`，不会安装第三方 RabbitMQ 客户端库。
+- `ctest --test-dir build --output-on-failure` 通过，共 `3/3` 个测试，新增测试覆盖 Protobuf 普通消息和含空字节文件内容。
+- 安装目标只包含 `cloud_disk_api_gateway`、`cloud_disk_user_service`、`cloud_disk_file_service` 和备份 Worker。
 - 子项目没有覆盖主项目的 Debug 构建类型或全局 `CMAKE_CXX_FLAGS`。
 - 新 Web 服务已连接本机 RabbitMQ 4.x，成功声明 `webdisk.oss.backup.v1`：durable=true、auto_delete=false、exclusive=false，并完成启动和 `Ctrl+C` 停止验证。
 - `cloud_disk_rabbitmq_smoke_test` 已通过真实 Broker 验证正式发布器、持久化消息、消费和手动 ACK；它直接消费并校验消息，不访问 OSS，成功后删除独立临时队列。正式 Worker 由真实 OSS 端到端验收覆盖。
 - 经用户明确授权，`cloud_disk_rabbitmq_oss_smoke_producer` 已把固定测试内容写入本地主存储并向业务队列发布任务；正式 Worker 成功上传当前配置的真实 OSS Bucket，随后手动 ACK，队列恢复为零待处理、零未确认消息，并完成 `Ctrl+C` 正常停止。授权约定要求本地文件和 OSS 对象作为测试备份保留。
+- 用户 RPC 服务、文件 RPC 服务和 API 网关已在 macOS 本机分别监听 `9601`、`9602`、`9527`；手动 RPC 冒烟同时连通两个服务，HTTP 空注册请求经网关和用户 RPC 返回统一 400 JSON，三个进程均通过 `Ctrl+C` 正常停止。
+- 当前文件 RPC 使用 Protobuf `bytes` 传输文件，HTTP 和 RPC 请求大小均受配置约束；同机开发可用，但会产生额外序列化与内存复制，跨机器扩容时应改为流式或对象存储直传。
 
 第二阶段：消费者可靠性
 
@@ -443,6 +459,7 @@ macOS 默认大小写不敏感文件系统上，Workflow 源码中的 `BUILD` �
 ## 15. 建议下次 Codex 的开始顺序
 
 1. 先阅读本文件、`README.md`、需求主文档，再查看真实的 `git status`、最近提交和当前 `git diff`；不要只相信本文件的时间点快照。
-2. RabbitMQ 第一阶段已经实现；下一步从第二阶段的失败重试、DLQ 和断线重连开始，不要重新引入同步 OSS 上传。
-3. 保留第 2 节中的全部未提交成果，只修改本次任务明确涉及的文件。
-4. 提交前运行 `git diff --check`、`cmake --build build --parallel` 和 `ctest --test-dir build --output-on-failure`。
+2. RabbitMQ 第二、第三阶段按用户要求暂停；当前继续使用第一阶段，不要主动开始重试、DLQ、重连或 Outbox。
+3. 第四期第一版已经实现固定地址网关、用户 RPC 和文件 RPC；第五期 Consul 尚未开始，继续开发前先确认用户的新指示。
+4. 保留第 2 节中的全部未提交成果，只修改本次任务明确涉及的文件。
+5. 提交前运行 `git diff --check`、`cmake --build build --parallel` 和 `ctest --test-dir build --output-on-failure`。

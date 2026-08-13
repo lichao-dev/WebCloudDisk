@@ -19,11 +19,114 @@ find_package(CURL REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(Threads REQUIRED)
 
+# 从当前 protoc 所在前缀查找 Protobuf CMake 包。macOS Homebrew 默认位于
+# /opt/homebrew，Intel Mac 通常位于 /usr/local，这里不硬编码任一架构路径。
+find_program(WEB_DISK_PROTOC_EXECUTABLE protoc REQUIRED)
+get_filename_component(WEB_DISK_PROTOBUF_BIN_DIR "${WEB_DISK_PROTOC_EXECUTABLE}" DIRECTORY)
+get_filename_component(WEB_DISK_PROTOBUF_PREFIX "${WEB_DISK_PROTOBUF_BIN_DIR}" DIRECTORY)
+list(PREPEND CMAKE_PREFIX_PATH "${WEB_DISK_PROTOBUF_PREFIX}")
+find_package(Protobuf CONFIG REQUIRED)
+
 
 # =========================
 # 第三方库目录
 # =========================
 set(THIRD_PARTY_DIR "${CMAKE_SOURCE_DIR}/third_party")
+
+set(SRPC_GENERATOR "${THIRD_PARTY_DIR}/srpc/_bin/srpc_generator")
+set(SRPC_LIBRARY "${THIRD_PARTY_DIR}/srpc/_lib/libsrpc.a")
+if(NOT EXISTS "${SRPC_GENERATOR}" OR NOT EXISTS "${SRPC_LIBRARY}")
+    message(FATAL_ERROR
+        "sRPC is not built. Follow docs/第三方库编译与迁移指南.md to build "
+        "srpc-static and srpc_generator under third_party/srpc first."
+    )
+endif()
+
+find_library(SNAPPY_LIBRARY NAMES snappy
+    HINTS "${WEB_DISK_PROTOBUF_PREFIX}/opt/snappy/lib"
+    REQUIRED
+)
+find_library(LZ4_LIBRARY NAMES lz4
+    HINTS "${WEB_DISK_PROTOBUF_PREFIX}/opt/lz4/lib"
+    REQUIRED
+)
+
+
+# =========================
+# Protobuf / sRPC 协议代码
+# =========================
+set(RPC_GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
+set(RPC_GENERATED_PROTO_DIR "${RPC_GENERATED_DIR}/proto")
+set(RPC_PROTO_FILES
+    "${CMAKE_SOURCE_DIR}/proto/common.proto"
+    "${CMAKE_SOURCE_DIR}/proto/user_service.proto"
+    "${CMAKE_SOURCE_DIR}/proto/file_service.proto"
+)
+set(RPC_GENERATED_SOURCES
+    "${RPC_GENERATED_PROTO_DIR}/common.pb.cc"
+    "${RPC_GENERATED_PROTO_DIR}/user_service.pb.cc"
+    "${RPC_GENERATED_PROTO_DIR}/file_service.pb.cc"
+)
+set(RPC_GENERATED_HEADERS
+    "${RPC_GENERATED_PROTO_DIR}/common.pb.h"
+    "${RPC_GENERATED_PROTO_DIR}/user_service.pb.h"
+    "${RPC_GENERATED_PROTO_DIR}/file_service.pb.h"
+    "${RPC_GENERATED_PROTO_DIR}/common.srpc.h"
+    "${RPC_GENERATED_PROTO_DIR}/user_service.srpc.h"
+    "${RPC_GENERATED_PROTO_DIR}/file_service.srpc.h"
+)
+
+add_custom_command(
+    OUTPUT ${RPC_GENERATED_SOURCES} ${RPC_GENERATED_HEADERS}
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${RPC_GENERATED_PROTO_DIR}"
+    COMMAND "${WEB_DISK_PROTOC_EXECUTABLE}"
+        --proto_path=${CMAKE_SOURCE_DIR}
+        --cpp_out=${RPC_GENERATED_DIR}
+        ${RPC_PROTO_FILES}
+    COMMAND "${SRPC_GENERATOR}" protobuf
+        "proto/user_service.proto"
+        "${RPC_GENERATED_PROTO_DIR}"
+    COMMAND "${SRPC_GENERATOR}" protobuf
+        "proto/file_service.proto"
+        "${RPC_GENERATED_PROTO_DIR}"
+    DEPENDS ${RPC_PROTO_FILES} "${SRPC_GENERATOR}"
+    BYPRODUCTS
+        "${RPC_GENERATED_PROTO_DIR}/client.pb_skeleton.cc"
+        "${RPC_GENERATED_PROTO_DIR}/server.pb_skeleton.cc"
+    COMMENT "Generating WebCloudDisk Protobuf and sRPC sources"
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    VERBATIM
+)
+
+add_library(webdisk_rpc_protocol STATIC
+    ${RPC_GENERATED_SOURCES}
+    ${RPC_GENERATED_HEADERS}
+)
+
+target_include_directories(webdisk_rpc_protocol PUBLIC
+    "${RPC_GENERATED_DIR}"
+    "${RPC_GENERATED_PROTO_DIR}"
+    "${THIRD_PARTY_DIR}/srpc/_include"
+)
+
+target_link_libraries(webdisk_rpc_protocol PUBLIC
+    protobuf::libprotobuf
+)
+
+add_library(webdisk_srpc_runtime INTERFACE)
+target_link_libraries(webdisk_srpc_runtime INTERFACE
+    webdisk_rpc_protocol
+    "${SRPC_LIBRARY}"
+    "${THIRD_PARTY_DIR}/workflow/_lib/libworkflow.a"
+    "${SNAPPY_LIBRARY}"
+    "${LZ4_LIBRARY}"
+    protobuf::libprotobuf
+    OpenSSL::SSL
+    OpenSSL::Crypto
+    ZLIB::ZLIB
+    Threads::Threads
+    "${CMAKE_DL_LIBS}"
+)
 
 # OSS SDK 使用系统 curl 和 OpenSSL，避免配置阶段下载依赖。
 set(BUILD_TESTS OFF)
@@ -88,11 +191,9 @@ add_library(SimpleAmqpClient::SimpleAmqpClient ALIAS SimpleAmqpClient)
 # 核心静态库
 #
 # 将业务代码编译为 libcloud_disk_core.a，
-# server 和 test 程序都链接该库。
+# 网关、RPC 服务、Worker 和测试程序都链接该库。
 # =========================
 add_library(cloud_disk_core STATIC
-    src/app/Application.cc
-
     # 通用组件
     # 配置管理
     src/config/Config.cc
@@ -102,10 +203,7 @@ add_library(cloud_disk_core STATIC
 
     # HTTP 请求处理
     src/http/ApiResponse.cc
-    src/http/AuthHandler.cc
     src/http/AuthMiddleware.cc
-    src/http/FileHandler.cc
-    src/http/UserHandler.cc
 
     # 日志
     src/log/Log.cc
@@ -206,25 +304,51 @@ target_link_libraries(cloud_disk_core PUBLIC
 
 
 # =========================
-# 主程序
+# 正式进程
 # =========================
-add_executable(cloud_disk_server
-    src/server/main.cc
-)
-
 add_executable(cloud_disk_backup_worker
     src/worker/main.cc
 )
 
-target_link_libraries(cloud_disk_server PRIVATE
-    cloud_disk_core
+add_executable(cloud_disk_api_gateway
+    src/gateway/GatewayApplication.cc
+    src/gateway/main.cc
+)
+
+add_executable(cloud_disk_user_service
+    src/rpc/UserRpcServiceImpl.cc
+    src/user_service/main.cc
+)
+
+add_executable(cloud_disk_file_service
+    src/file_service/main.cc
+    src/rpc/FileRpcServiceImpl.cc
 )
 
 target_link_libraries(cloud_disk_backup_worker PRIVATE
     cloud_disk_core
 )
 
-install(TARGETS cloud_disk_server cloud_disk_backup_worker
+target_link_libraries(cloud_disk_api_gateway PRIVATE
+    cloud_disk_core
+    webdisk_srpc_runtime
+)
+
+target_link_libraries(cloud_disk_user_service PRIVATE
+    cloud_disk_core
+    webdisk_srpc_runtime
+)
+
+target_link_libraries(cloud_disk_file_service PRIVATE
+    cloud_disk_core
+    webdisk_srpc_runtime
+)
+
+install(TARGETS
+    cloud_disk_backup_worker
+    cloud_disk_api_gateway
+    cloud_disk_user_service
+    cloud_disk_file_service
     RUNTIME DESTINATION bin
 )
 
@@ -261,6 +385,24 @@ if(BUILD_TESTING)
         SimpleAmqpClient::SimpleAmqpClient
     )
 
+    add_executable(cloud_disk_rpc_protocol_tests
+        tests/rpc_protocol_tests.cc
+    )
+
+    target_link_libraries(cloud_disk_rpc_protocol_tests PRIVATE
+        webdisk_rpc_protocol
+    )
+
+    # 手动验证两个真实 RPC 进程可达，不注册到 CTest，避免普通测试依赖运行中的服务。
+    add_executable(cloud_disk_rpc_smoke_test
+        tests/rpc_smoke_test.cc
+    )
+
+    target_link_libraries(cloud_disk_rpc_smoke_test PRIVATE
+        cloud_disk_core
+        webdisk_srpc_runtime
+    )
+
     # 手动连接真实 Broker 的冒烟程序；验证正式发布器、消息属性、消费和 ACK，不访问 OSS。
     add_executable(cloud_disk_rabbitmq_smoke_test
         tests/rabbitmq_smoke_test.cc
@@ -287,6 +429,11 @@ if(BUILD_TESTING)
     add_test(
         NAME cloud_disk_rabbitmq_client_tests
         COMMAND cloud_disk_rabbitmq_client_tests
+    )
+
+    add_test(
+        NAME cloud_disk_rpc_protocol_tests
+        COMMAND cloud_disk_rpc_protocol_tests
     )
 
 endif()

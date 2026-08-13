@@ -84,6 +84,12 @@ common::Result<Config> Config::load(const std::filesystem::path& path) {
                                         "storage.max_file_size_bytes", 1, std::numeric_limits<uint64_t>::max());
     auto oss_enabled = parse_boolean(reader.Get("oss", "enabled", "false"), "oss.enabled");
     auto rabbitmq_port = parse_unsigned(reader.Get("rabbitmq", "port", "5672"), "rabbitmq.port", 1, 65535);
+    auto user_service_port =
+        parse_unsigned(reader.Get("rpc", "user_service_port", "9601"), "rpc.user_service_port", 1, 65535);
+    auto file_service_port =
+        parse_unsigned(reader.Get("rpc", "file_service_port", "9602"), "rpc.file_service_port", 1, 65535);
+    auto rpc_request_timeout = parse_unsigned(reader.Get("rpc", "request_timeout_ms", "120000"),
+                                              "rpc.request_timeout_ms", 1000, 600000);
     auto log_console = parse_boolean(reader.Get("log", "console", "true"), "log.console");
     auto log_roll_size = parse_unsigned(reader.Get("log", "roll_size", "100000000"), "log.roll_size", 1,
                                         static_cast<uint64_t>(std::numeric_limits<size_t>::max()));
@@ -91,7 +97,8 @@ common::Result<Config> Config::load(const std::filesystem::path& path) {
 
     const common::Result<uint64_t>* numeric_values[] = {
         &server_port,   &database_port, &retry_max,     &token_ttl,      &password_iterations,
-        &max_file_size, &rabbitmq_port, &log_roll_size, &log_roll_files,
+        &max_file_size, &rabbitmq_port, &user_service_port, &file_service_port, &rpc_request_timeout,
+        &log_roll_size, &log_roll_files,
     };
     for (const auto* result : numeric_values) {
         if (!result->ok()) {
@@ -135,15 +142,31 @@ common::Result<Config> Config::load(const std::filesystem::path& path) {
     config.rabbitmq.vhost = reader.Get("rabbitmq", "vhost", "/");
     config.rabbitmq.queue = reader.Get("rabbitmq", "queue", "webdisk.oss.backup.v1");
 
+    config.rpc.user_service_host = reader.Get("rpc", "user_service_host", "127.0.0.1");
+    config.rpc.user_service_port = static_cast<uint16_t>(user_service_port.value());
+    config.rpc.file_service_host = reader.Get("rpc", "file_service_host", "127.0.0.1");
+    config.rpc.file_service_port = static_cast<uint16_t>(file_service_port.value());
+    config.rpc.request_timeout_ms = static_cast<int>(rpc_request_timeout.value());
+
     config.log.level = reader.Get("log", "level", "info");
     config.log.console = log_console.value();
-    const std::string log_file = reader.Get("log", "file", "./log/server.log");
-    if (!log_file.empty()) {
-        config.log.file = resolve_path(working_dir, log_file);
-    }
     const std::string worker_log_file = reader.Get("log", "worker_file", "./log/cloud_disk_backup_worker.log");
     if (!worker_log_file.empty()) {
         config.log.worker_file = resolve_path(working_dir, worker_log_file);
+    }
+    const std::string gateway_log_file = reader.Get("log", "gateway_file", "./log/cloud_disk_api_gateway.log");
+    if (!gateway_log_file.empty()) {
+        config.log.gateway_file = resolve_path(working_dir, gateway_log_file);
+    }
+    const std::string user_service_log_file =
+        reader.Get("log", "user_service_file", "./log/cloud_disk_user_service.log");
+    if (!user_service_log_file.empty()) {
+        config.log.user_service_file = resolve_path(working_dir, user_service_log_file);
+    }
+    const std::string file_service_log_file =
+        reader.Get("log", "file_service_file", "./log/cloud_disk_file_service.log");
+    if (!file_service_log_file.empty()) {
+        config.log.file_service_file = resolve_path(working_dir, file_service_log_file);
     }
     config.log.roll_size = log_roll_size.value();
     config.log.roll_files = static_cast<size_t>(log_roll_files.value());
@@ -176,8 +199,13 @@ common::Result<Config> Config::load(const std::filesystem::path& path) {
         return common::Result<Config>::failure(
             500, "rabbitmq.host, username, password, vhost, and queue must not be empty when OSS backup is enabled");
     }
-    if (!config.log.console && config.log.file.empty()) {
-        return common::Result<Config>::failure(500, "log.console and log.file cannot both be disabled");
+    if (config.rpc.user_service_host.empty() || config.rpc.file_service_host.empty()) {
+        return common::Result<Config>::failure(500, "rpc.user_service_host and rpc.file_service_host must not be empty");
+    }
+    if (!config.log.console && (config.log.gateway_file.empty() || config.log.user_service_file.empty() ||
+                                config.log.file_service_file.empty())) {
+        return common::Result<Config>::failure(
+            500, "gateway_file, user_service_file, and file_service_file are required when log.console is disabled");
     }
     if (config.oss.enabled && !config.log.console && config.log.worker_file.empty()) {
         return common::Result<Config>::failure(500, "log.console and log.worker_file cannot both be disabled");
@@ -202,9 +230,17 @@ std::string Config::to_string() const {
            << ", queue=" << rabbitmq.queue
            << ", username_configured=" << !rabbitmq.username.empty()
            << ", password_configured=" << !rabbitmq.password.empty() << "} "
+           << "rpc{user_service=" << rpc.user_service_host << ":" << rpc.user_service_port
+           << ", file_service=" << rpc.file_service_host << ":" << rpc.file_service_port
+           << ", request_timeout_ms=" << rpc.request_timeout_ms << "} "
            << "log{level=" << log.level << ", console=" << log.console
-           << ", file=" << (log.file.empty() ? "disabled" : log.file.string()) << ", roll_size=" << log.roll_size
+           << ", roll_size=" << log.roll_size
            << ", worker_file=" << (log.worker_file.empty() ? "disabled" : log.worker_file.string())
+           << ", gateway_file=" << (log.gateway_file.empty() ? "disabled" : log.gateway_file.string())
+           << ", user_service_file="
+           << (log.user_service_file.empty() ? "disabled" : log.user_service_file.string())
+           << ", file_service_file="
+           << (log.file_service_file.empty() ? "disabled" : log.file_service_file.string())
            << ", roll_files=" << log.roll_files << "}";
     return output.str();
 }

@@ -4,9 +4,8 @@
 #include <functional>
 #include <string>
 
-#include <wfrest/HttpServer.h>
-
 #include "common/Result.h"
+#include "common/TaskScheduler.h"
 #include "model/User.h"
 #include "repository/UserRepository.h"
 #include "security/JwtService.h"
@@ -34,13 +33,13 @@ public:
                 const security::JwtService& jwt_service);
 
     void register_user(const std::string& username, const std::string& password, const std::string& confirm,
-                       wfrest::HttpResp* response, RegisterCallback callback) const;
+                       const common::TaskScheduler& scheduler, RegisterCallback callback) const;
 
-    void login(const std::string& username, const std::string& password, wfrest::HttpResp* response,
+    void login(const std::string& username, const std::string& password, const common::TaskScheduler& scheduler,
                LoginCallback callback) const;
 
 private:
-    void finish_login(const model::User& user, const std::string& password, wfrest::HttpResp* response,
+    void finish_login(const model::User& user, const std::string& password, const common::TaskScheduler& scheduler,
                       LoginCallback callback) const;
 
     const repository::UserRepository& users_;

@@ -49,12 +49,12 @@ void FileService::try_publish_backup(uint64_t user_id, const std::string& hashco
     LOG_DEBUG("OSS backup task published: user_id={}, hashcode={}, size={}", user_id, hashcode, size);
 }
 
-void FileService::list(uint64_t user_id, wfrest::HttpResp* response, ListCallback callback) const {
-    response->add_task(files_.list_by_user(user_id, std::move(callback)));
+void FileService::list(uint64_t user_id, const common::TaskScheduler& scheduler, ListCallback callback) const {
+    scheduler.add_task(files_.list_by_user(user_id, std::move(callback)));
 }
 
 void FileService::upload(uint64_t user_id, const std::string& untrusted_filename, const std::string& content,
-                         wfrest::HttpResp* response, UploadCallback callback) const {
+                         const common::TaskScheduler& scheduler, UploadCallback callback) const {
     if (content.size() > max_file_size_) {
         LOG_WARN("Upload rejected: user_id={}, size={}, max_size={}", user_id, content.size(), max_file_size_);
         callback(common::Result<UploadedFile>::failure(413, "File size exceeds the limit"));
@@ -88,7 +88,7 @@ void FileService::upload(uint64_t user_id, const std::string& untrusted_filename
     const bool content_created = stored.value();
     WFMySQLTask* task = files_.create(
         user_id, safe_filename, content_hashcode, file_size,
-        [this, user_id, safe_filename, content_hashcode, file_size, content_created, response,
+        [this, user_id, safe_filename, content_hashcode, file_size, content_created, scheduler,
          callback = std::move(callback)](common::Result<uint64_t> result) mutable {
             if (!result) {
                 callback(common::Result<UploadedFile>::failure(result.error().status_code, result.error().message));
@@ -96,8 +96,8 @@ void FileService::upload(uint64_t user_id, const std::string& untrusted_filename
             }
             const uint64_t file_id = result.value();
             // BasicPublish 会等待 Broker 确认。移到计算队列，避免阻塞 Workflow 的数据库完成回调线程。
-            response->Compute(0, [this, user_id, file_id, safe_filename, content_hashcode, file_size, content_created,
-                                  callback = std::move(callback)]() {
+            scheduler.add_compute_task([this, user_id, file_id, safe_filename, content_hashcode, file_size,
+                                        content_created, callback = std::move(callback)]() {
                     // 只有文件元数据成功写入后才提交备份任务，避免为失败的上传创建无意义的 OSS 对象。
                 try_publish_backup(user_id, content_hashcode, file_size);
                 LOG_INFO("File uploaded: user_id={}, file_id={}, size={}, new_content={}", user_id, file_id, file_size,
@@ -105,10 +105,10 @@ void FileService::upload(uint64_t user_id, const std::string& untrusted_filename
                 callback(common::Result<UploadedFile>::success(UploadedFile{file_id, safe_filename}));
             });
         });
-    response->add_task(task);
+    scheduler.add_task(task);
 }
 
-void FileService::find_download(uint64_t user_id, uint64_t file_id, wfrest::HttpResp* response,
+void FileService::find_download(uint64_t user_id, uint64_t file_id, const common::TaskScheduler& scheduler,
                                 DownloadCallback callback) const {
     // Result 表示数据库查询是否成功，optional<FileInfo> 表示是否找到当前用户拥有的文件；
     // 文件不存在或不属于当前用户都会返回空值，并统一映射为 404。
@@ -136,7 +136,7 @@ void FileService::find_download(uint64_t user_id, uint64_t file_id, wfrest::Http
             LOG_DEBUG("File download prepared: user_id={}, file_id={}", user_id, file_id);
             callback(common::Result<DownloadFile>::success(DownloadFile{file.filename, path.value()}));
         });
-    response->add_task(task);
+    scheduler.add_task(task);
 }
 
 } // namespace service

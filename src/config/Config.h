@@ -56,11 +56,23 @@ public:
         std::string queue{"webdisk.oss.backup.v1"};
     };
 
+    struct Rpc {
+        std::string user_service_host{"127.0.0.1"};
+        uint16_t user_service_port{9601};
+        std::string file_service_host{"127.0.0.1"};
+        uint16_t file_service_port{9602};
+        int request_timeout_ms{120000};
+    };
+
     struct Log {
         std::string level{"info"};
         bool console{true};
+        // Log::init() 使用的当前进程输出路径，由各进程从下面的专用路径中选择。
         std::filesystem::path file;
         std::filesystem::path worker_file;
+        std::filesystem::path gateway_file;
+        std::filesystem::path user_service_file;
+        std::filesystem::path file_service_file;
         uint64_t roll_size{100000000}; // 日志文件滚动大小
         size_t roll_files{5}; // 日志文件滚动数量
     };
@@ -75,6 +87,7 @@ public:
     Storage storage;
     Oss oss;
     RabbitMq rabbitmq;
+    Rpc rpc;
     Log log;
 };
 

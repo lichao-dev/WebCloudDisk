@@ -8,7 +8,7 @@ namespace service {
 UserService::UserService(const repository::UserRepository& users)
     : users_{users} {}
 
-void UserService::get_current_user(uint64_t user_id, wfrest::HttpResp* response, Callback callback) const {
+void UserService::get_current_user(uint64_t user_id, const common::TaskScheduler& scheduler, Callback callback) const {
     WFMySQLTask* task =
         users_.find_by_id(user_id, [callback = std::move(callback)](common::Result<std::optional<model::User>> result) {
             if (!result) {
@@ -21,7 +21,7 @@ void UserService::get_current_user(uint64_t user_id, wfrest::HttpResp* response,
             }
             callback(common::Result<model::User>::success(*result.value()));
         });
-    response->add_task(task);
+    scheduler.add_task(task);
 }
 
 } // namespace service

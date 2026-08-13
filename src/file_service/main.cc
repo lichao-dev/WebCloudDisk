@@ -1,0 +1,114 @@
+#include <algorithm>
+#include <csignal>
+#include <cstdint>
+#include <filesystem>
+#include <iostream>
+#include <limits>
+#include <memory>
+#include <string_view>
+
+#include <workflow/WFFacilities.h>
+
+#include "config/Config.h"
+#include "database/MySqlClient.h"
+#include "log/Log.h"
+#include "messaging/RabbitMqBackupTaskPublisher.h"
+#include "repository/FileRepository.h"
+#include "rpc/FileRpcServiceImpl.h"
+#include "service/FileService.h"
+#include "storage/FileStorage.h"
+
+namespace {
+
+WFFacilities::WaitGroup wait_group{1};
+
+void signal_handler(int) {
+    wait_group.done();
+}
+
+webdisk::common::Result<std::filesystem::path> parse_config_path(int argc, char* argv[]) {
+    if (argc != 3 || std::string_view(argv[1]) != "--config" || std::string_view(argv[2]).empty()) {
+        return webdisk::common::Result<std::filesystem::path>::failure(
+            500, "Usage: cloud_disk_file_service --config <server.ini>");
+    }
+    return webdisk::common::Result<std::filesystem::path>::success(argv[2]);
+}
+
+} // namespace
+
+int main(int argc, char* argv[]) {
+    auto config_path = parse_config_path(argc, argv);
+    if (!config_path) {
+        std::cerr << config_path.error().message << '\n';
+        return 1;
+    }
+
+    auto config_result = webdisk::config::Config::load(config_path.value());
+    if (!config_result) {
+        std::cerr << config_result.error().message << '\n';
+        return 1;
+    }
+    webdisk::config::Config config = config_result.take_value();
+
+    webdisk::config::Config::Log log_config = config.log;
+    log_config.file = log_config.file_service_file;
+    auto log_result = webdisk::log::Log::init(log_config);
+    if (!log_result) {
+        std::cerr << log_result.error().message << '\n';
+        return 1;
+    }
+    LOG_INFO("Configuration: {}", config.to_string());
+
+    webdisk::db::MySqlClient database{config.database};
+    webdisk::repository::FileRepository files{database};
+    webdisk::storage::FileStorage storage{config.storage.root};
+    auto storage_result = storage.init();
+    if (!storage_result) {
+        LOG_ERROR("File storage initialization failed: status={}", storage_result.error().status_code);
+        webdisk::log::Log::shutdown();
+        return 1;
+    }
+
+    std::unique_ptr<webdisk::messaging::RabbitMqBackupTaskPublisher> backup_task_publisher;
+    webdisk::service::FileService file_service{files, storage, config.storage.max_file_size};
+    if (config.oss.enabled) {
+        auto publisher_result = webdisk::messaging::RabbitMqBackupTaskPublisher::create(config.rabbitmq);
+        if (!publisher_result) {
+            LOG_ERROR("Backup publisher initialization failed: status={}", publisher_result.error().status_code);
+            webdisk::log::Log::shutdown();
+            return 1;
+        }
+        backup_task_publisher = publisher_result.take_value();
+        file_service.set_backup_task_publisher(backup_task_publisher.get());
+    }
+
+    webdisk::rpcserver::FileRpcServiceImpl rpc_service{file_service};
+    srpc::RPCServerParams server_params = srpc::RPC_SERVER_PARAMS_DEFAULT;
+    constexpr uint64_t overhead = 2ULL * 1024ULL * 1024ULL;
+    const uint64_t request_limit = config.storage.max_file_size > std::numeric_limits<uint64_t>::max() - overhead
+                                       ? config.storage.max_file_size
+                                       : config.storage.max_file_size + overhead;
+    server_params.request_size_limit =
+        static_cast<size_t>(std::min<uint64_t>(request_limit, std::numeric_limits<size_t>::max()));
+    srpc::SRPCServer server{&server_params};
+    if (server.add_service(&rpc_service) != 0) {
+        LOG_ERROR("Failed to register file RPC service");
+        webdisk::log::Log::shutdown();
+        return 1;
+    }
+
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
+    if (server.start(config.rpc.file_service_port) != 0) {
+        LOG_ERROR("File RPC service failed to start on port {}", config.rpc.file_service_port);
+        webdisk::log::Log::shutdown();
+        return 1;
+    }
+
+    LOG_INFO("File RPC service listening on port {}", config.rpc.file_service_port);
+    wait_group.wait();
+    server.stop();
+    LOG_INFO("File RPC service stopped");
+    webdisk::log::Log::shutdown();
+    return 0;
+}

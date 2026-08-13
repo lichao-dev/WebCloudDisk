@@ -14,7 +14,7 @@ AuthService::AuthService(const repository::UserRepository& users, const security
       jwt_service_{jwt_service} {}
 
 void AuthService::register_user(const std::string& username, const std::string& password, const std::string& confirm,
-                                wfrest::HttpResp* response, RegisterCallback callback) const {
+                                const common::TaskScheduler& scheduler, RegisterCallback callback) const {
     if (username.empty() || password.empty()) {
         callback(common::Result<RegisteredUser>::failure(400, "Username and password must not be empty"));
         return;
@@ -44,10 +44,11 @@ void AuthService::register_user(const std::string& username, const std::string& 
             LOG_INFO("User registered: user_id={}", result.value());
             callback(common::Result<RegisteredUser>::success(RegisteredUser{result.value(), username}));
         });
-    response->add_task(task);
+    scheduler.add_task(task);
 }
 
-void AuthService::login(const std::string& username, const std::string& password, wfrest::HttpResp* response,
+void AuthService::login(const std::string& username, const std::string& password,
+                        const common::TaskScheduler& scheduler,
                         LoginCallback callback) const {
     if (username.empty() || password.empty()) {
         callback(common::Result<LoginResult>::failure(400, "Username and password must not be empty"));
@@ -60,7 +61,7 @@ void AuthService::login(const std::string& username, const std::string& password
 
     // Result 表示数据库查询是否成功，optional<User> 表示查询成功后是否找到用户。
     WFMySQLTask* task =
-        users_.find_by_username(username, [this, password, response, callback = std::move(callback)](
+        users_.find_by_username(username, [this, password, scheduler, callback = std::move(callback)](
                                               common::Result<std::optional<model::User>> result) mutable {
             if (!result) {
                 callback(common::Result<LoginResult>::failure(result.error().status_code, result.error().message));
@@ -76,16 +77,16 @@ void AuthService::login(const std::string& username, const std::string& password
             model::User user = *result.value();
             // MySQL 回调运行在 Workflow 的处理线程中，而 PBKDF2 会大量占用 CPU。
             // 将密码验证转移到计算队列，避免阻塞网络和数据库回调线程。
-            response->Compute(
-                0, [this, user = std::move(user), password, response, callback = std::move(callback)]() mutable {
-                    finish_login(user, password, response, std::move(callback));
+            scheduler.add_compute_task(
+                [this, user = std::move(user), password, scheduler, callback = std::move(callback)]() mutable {
+                    finish_login(user, password, scheduler, std::move(callback));
                 });
         });
-    response->add_task(task);
+    scheduler.add_task(task);
 }
 
-void AuthService::finish_login(const model::User& user, const std::string& password, wfrest::HttpResp* response,
-                               LoginCallback callback) const {
+void AuthService::finish_login(const model::User& user, const std::string& password,
+                               const common::TaskScheduler& scheduler, LoginCallback callback) const {
     auto verified = password_hasher_.verify(password, user.password_hash);
     // 验证流程本身失败，例如存储的哈希格式损坏或 PBKDF2 计算出错。
     if (!verified.ok()) {
@@ -131,7 +132,7 @@ void AuthService::finish_login(const model::User& user, const std::string& passw
             LOG_INFO("User logged in and password hash upgraded: user_id={}", user_id);
             callback(common::Result<LoginResult>::success(std::move(login_result)));
         });
-    response->add_task(update_task);
+    scheduler.add_task(update_task);
 }
 
 } // namespace service

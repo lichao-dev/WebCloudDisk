@@ -68,7 +68,11 @@ void test_config(const std::filesystem::path& root) {
               "key_prefix=test/backup\n"
               "[rabbitmq]\nhost=127.0.0.1\nport=5672\nusername=test-user\npassword=test-password\n"
               "vhost=/test\nqueue=test.oss.backup.v1\n"
-              "[log]\nlevel=info\nconsole=false\nfile=./test-log/server.log\nworker_file=./test-log/worker.log\n"
+              "[rpc]\nuser_service_host=127.0.0.1\nuser_service_port=9601\n"
+              "file_service_host=127.0.0.1\nfile_service_port=9602\nrequest_timeout_ms=120000\n"
+              "[log]\nlevel=info\nconsole=false\nworker_file=./test-log/worker.log\n"
+              "gateway_file=./test-log/gateway.log\nuser_service_file=./test-log/user-service.log\n"
+              "file_service_file=./test-log/file-service.log\n"
               "roll_size=2048\nroll_files=3\n";
     output.close();
 
@@ -88,9 +92,18 @@ void test_config(const std::filesystem::path& root) {
     assert(config.value().rabbitmq.password == "test-password");
     assert(config.value().rabbitmq.vhost == "/test");
     assert(config.value().rabbitmq.queue == "test.oss.backup.v1");
+    assert(config.value().rpc.user_service_host == "127.0.0.1");
+    assert(config.value().rpc.user_service_port == 9601);
+    assert(config.value().rpc.file_service_host == "127.0.0.1");
+    assert(config.value().rpc.file_service_port == 9602);
+    assert(config.value().rpc.request_timeout_ms == 120000);
     assert(!config.value().log.console);
-    assert(config.value().log.file == (working_dir / "test-log" / "server.log").lexically_normal());
     assert(config.value().log.worker_file == (working_dir / "test-log" / "worker.log").lexically_normal());
+    assert(config.value().log.gateway_file == (working_dir / "test-log" / "gateway.log").lexically_normal());
+    assert(config.value().log.user_service_file ==
+           (working_dir / "test-log" / "user-service.log").lexically_normal());
+    assert(config.value().log.file_service_file ==
+           (working_dir / "test-log" / "file-service.log").lexically_normal());
     assert(config.value().log.roll_size == 2048);
     assert(config.value().log.roll_files == 3);
 

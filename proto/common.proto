@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package webdisk.rpc;
+
+// code 为 0 表示成功，非 0 时沿用网关对外使用的 HTTP 状态码。
+message RpcStatus {
+  int32 code = 1;
+  string message = 2;
+}
+
+message UserInfo {
+  uint64 user_id = 1;
+  string username = 2;
+  string created_at = 3;
+  string updated_at = 4;
+}
+
+message FileInfo {
+  uint64 file_id = 1;
+  string filename = 2;
+  uint64 size = 3;
+  string created_at = 4;
+  string updated_at = 5;
+}

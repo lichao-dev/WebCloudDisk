@@ -63,15 +63,27 @@ vhost=/
 ; 第一阶段使用默认交换机，队列名同时作为 routing key
 queue=webdisk.oss.backup.v1
 
+[rpc]
+; API 网关访问两个后端 RPC 服务的地址；三个进程部署在同一台机器时保持默认值即可
+user_service_host=127.0.0.1
+user_service_port=9601
+file_service_host=127.0.0.1
+file_service_port=9602
+; 等待 RPC 服务首次响应的超时时间；大文件传输需要预留足够时间
+request_timeout_ms=120000
+
 [log]
 ; 日志级别
 ; 可选值通常包括 trace/debug/info/warn/error
 level=info
 ; 是否同时输出到控制台
 console=true
-file=./log/cloud_disk_server.log
-; Worker 单独写日志，避免两个进程同时轮转同一个文件
+; Worker 使用独立日志文件，避免多个进程同时轮转同一个文件
 worker_file=./log/cloud_disk_backup_worker.log
+; 第四期三个进程分别写日志，避免同时轮转同一个文件
+gateway_file=./log/cloud_disk_api_gateway.log
+user_service_file=./log/cloud_disk_user_service.log
+file_service_file=./log/cloud_disk_file_service.log
 ; 单个日志文件的最大字节数，达到后自动轮转
 roll_size=100000000
 ; 最多保留的轮转日志文件数量

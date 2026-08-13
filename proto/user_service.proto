@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package webdisk.rpc;
+
+import "proto/common.proto";
+
+message RegisterRequest {
+  string username = 1;
+  string password = 2;
+  string confirm = 3;
+}
+
+message RegisterResponse {
+  RpcStatus status = 1;
+  UserInfo user = 2;
+}
+
+message LoginRequest {
+  string username = 1;
+  string password = 2;
+}
+
+message LoginResponse {
+  RpcStatus status = 1;
+  string access_token = 2;
+  UserInfo user = 3;
+}
+
+message GetCurrentUserRequest {
+  uint64 user_id = 1;
+}
+
+message GetCurrentUserResponse {
+  RpcStatus status = 1;
+  UserInfo user = 2;
+}
+
+service UserRpcService {
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+  rpc Login(LoginRequest) returns (LoginResponse);
+  rpc GetCurrentUser(GetCurrentUserRequest) returns (GetCurrentUserResponse);
+}

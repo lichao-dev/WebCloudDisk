@@ -1831,3 +1831,265 @@ srpc::SRPCClientTask *create_Echo_task(EchoDone done);
 需要链接的库
 
 链接时，需要加上-lsrpc -llz4 -lsnappy -lprotobuf -lworkflow
+
+## 5.4 WebCloudDisk 在 macOS 上的实际实现
+
+本项目不执行上面的 Linux `apt`、`sudo make install` 和 `ldconfig` 命令。macOS 开发环境使用 Homebrew 提供
+Protobuf、Snappy、LZ4 和 OpenSSL，sRPC 0.10.4 源码及静态构建结果保留在 `third_party/srpc`。完整构建命令见
+`docs/第三方库编译与迁移指南.md`。
+
+第四期第一版包含三个进程：
+
+```text
+HTTP Client
+    ↓
+cloud_disk_api_gateway       9527
+    ├─ UserRpcService   → cloud_disk_user_service  9601
+    └─ FileRpcService   → cloud_disk_file_service  9602
+```
+
+协议目录中的三个文件并不表示三个微服务：`common.proto` 只定义共享的状态、用户和文件消息；
+`user_service.proto`、`file_service.proto` 才分别定义两个 RPC 服务。网关继续暴露原来的 REST API，并在本地校验
+JWT；用户服务负责注册、登录和当前用户查询，文件服务负责列表、上传、下载以及 RabbitMQ 第一阶段备份任务发布。
+旧的单体 `cloud_disk_server`、`Application` 和单体 HTTP Handler 已移除，HTTP 请求只通过 API 网关进入系统，避免
+同时维护两套对外接口实现。
+
+在项目根目录构建并启动：
+
+```bash
+cmake -S . -B build \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DBUILD_TESTING=ON \
+  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+cmake --build build --parallel
+ctest --test-dir build --output-on-failure
+
+./build/bin/cloud_disk_user_service --config conf/server.ini
+./build/bin/cloud_disk_file_service --config conf/server.ini
+./build/bin/cloud_disk_api_gateway --config conf/server.ini
+```
+
+当前同机学习实现通过 Protobuf `bytes` 在网关和文件服务之间传输文件，HTTP 与文件 RPC 请求上限都会按
+`storage.max_file_size_bytes` 配置。它适合同一台开发机器上的第一版拆分，但上传和下载会产生额外序列化与内存复制；
+以后跨机器部署或继续扩容时，应改为流式传输、共享存储或对象存储直传。
+
+---
+
+# 6 第五期：注册中心Consul
+
+在上一期中，我们将登录注册逻辑从API 网关中解耦出来。然而，API 网关在调用登录注册服务时，仍然采用硬编码的IP
+
+地址和端口，这意味着网关与后端服务之间并未实现彻底解耦。一旦后端服务发生宕机或地址变更，API 网关将无法正常
+
+工作。为了解决这一问题，我们可以同时启动多个登录注册服务的实例，并在启动时，将自己的网络地址等信息注册到注
+
+册中心。服务的消费者从注册中心查询可用的地址，这样就无需硬编码IP 地址和端口了。
+
+*Figure 4: 引入注册中心的微服务架构*
+
+整个流程如下：
+
+1. 实例启动时，向注册中心注册自己的元数据（如：服务的名字、IP 地址、端口等信息）。
+
+2. 注册中心会定期检查各个实例的健康状态，并更新各个实例的健康信息（可用不可用）。
+
+3. 服务的消费者从注册中心获取服务的某个健康实例的地址信息。
+
+4. 服务的消费者根据从注册中心获取的地址信息，发送RPC 请求。
+
+## 6.1 简介
+
+注册中心是微服务架构中的核心组件之一，它的主要作用是管理和维护各个微服务的注册信息，实现服务之间的自动注
+
+册和发现。注册中心(Service Registry) 是一个用于保存服务实例信息的数据库或服务。每个微服务在启动时，会将自己
+
+的地址(如IP 地址和端口) 和相关元信息注册到注册中心；其他服务可以通过注册中心找到它需要调用的服务。
+
+## 6.2 使用Docker 安装Consul
+
+```bash
+# 启动第一个节点
+docker run --name consul1 -d -p 8500:8500 -p 8301:8301 -p 8302:8302 -p 8600:8600 \
+hashicorp/consul agent -server -bootstrap-expect 2 -ui -bind=0.0.0.0 -client=0.0.0.0
+# 查看第一个节点的IP 地址, 本例子中是：172.17.0.3
+docker inspect consul1
+# 加入第二个节点，注意：-join 后面的ip 地址应与上面查询的结果一致
+docker run --name consul2 -d -p 8501:8500 hashicorp/consul agent -server -ui \
+-bind=0.0.0.0 -client=0.0.0.0 -join 172.17.0.3
+# 加入第二个节点，注意：-join 后面的ip 地址应与上面查询的结果一致
+docker run --name consul3 -d -p 8502:8500 hashicorp/consul agent -server -ui \
+-bind=0.0.0.0 -client=0.0.0.0 -join 172.17.0.3
+```
+
+![Consul 架构图](/Users/lichao/Downloads/Web网盘项目-Markdown/Web网盘项目.assets/consul-architecture.png)
+
+## 6.3 安装ppconsul
+
+ppconsul 是一个用C++11 编写的Consul 客户端库，旨在为C++ 开发者提供简单、模块化且高效的API，用于与Consul
+
+进行交互。它将Consul 的HTTP API 封装成C++ 风格、类型安全的接口，让C++ 微服务也能轻松接入Consul 进行服务
+
+发现和配置管理。
+
+ppconsul 是一个典型的CMake 工程，依照其它CMake 的安装流程即可。
+
+```bash
+cd ppconsul-0.2.3
+mkdir build && cd build
+cmake ..
+make
+sudo make install
+sudo ldconfig
+```
+
+安装成功后，头文件放置在/usr/local/include/ppconsul 目录下，库文件位于/usr/local/lib 目录。
+
+## 6.4 使用教程
+
+**consul_client.cc**
+
+```cpp
+#include "common.h"
+#include <iostream>
+#include <ppconsul/agent.h>
+#include <wfrest/HttpServer.h>
+#include <workflow/WFFacilities.h>
+using namespace std;
+using namespace wfrest;
+using ppconsul::Consul;
+using namespace ppconsul::agent;
+WFFacilities::WaitGroup waitGroup(1);
+void sig_handler(int)
+{
+16
+waitGroup.done();
+}
+void timer_callback(WFTimerTask* task)
+{
+21
+int state = task->get_state();
+22
+if (state != WFT_STATE_SUCCESS) {
+23
+return;
+24
+}
+25
+SeriesWork* series = series_of(task);
+26
+Agent* agent = static_cast<Agent*>(series->get_context());
+28
+// 发送心跳包
+29
+agent->servicePass("UserService1");
+30
+// 创建另一个定时任务
+31
+WFTimerTask* nextTask = WFTaskFactory::create_timer_task("health_check", 9, 0, timer_callback);
+```
+
+```bash
+32
+series->push_back(nextTask);
+}
+int main()
+{
+37
+HttpServer server;
+39
+if (server.start(8888) == 0) {
+41
+// 指定注册中心Consul 的ip 地址，端口和数据中心
+42
+Consul consul("http://127.0.0.1:8500", ppconsul::kw::dc = "dc1");
+43
+// 创建Consul 客户端代理
+44
+Agent agent(consul);
+45
+// 注册实例的元信息
+46
+agent.registerService(
+47
+kw::id = "UserService1",
+48
+kw::name = "UserService",
+49
+kw::address = "127.0.0.1",
+50
+kw::port = 8888,
+51
+kw::check = TtlCheck { chrono::seconds(10) });
+53
+// 定时发送心跳包
+54
+WFTimerTask* timerTask = WFTaskFactory::create_timer_task("health_check", 9, 0, timer_callback);
+56
+SeriesWork* series = Workflow::create_series_work(timerTask, nullptr);
+57
+series->set_context(&agent); // 设置序列的上下文
+58
+series->start();
+60
+waitGroup.wait();
+61
+server.stop();
+62
+} else {
+63
+cerr << "Error: Server start FAILED!" << endl;
+64
+exit(1);
+65
+}
+66
+return 0;
+}
+```
+
+服务注册好之后，服务的消费者可以通过URL:
+
+```bash
+http://<consul_host>:8500/v1/health/service/<service_name>?passing=true
+```
+
+查找某个服务的健康实例。Consul 服务器会返回类似下面的JSON 数据：
+
+```bash
+[
+{
+"Node": {
+...
+},
+"Service": {
+"ID": "UserService1",
+"Service": "UserService",
+```
+
+```bash
+"Tags": [],
+"Address": "127.0.0.1",
+"TaggedAddresses": {
+"lan_ipv4": {
+"Address": "127.0.0.1",
+"Port": 8888
+},
+"wan_ipv4": {
+"Address": "127.0.0.1",
+"Port": 8888
+}
+},
+"Meta": {
+},
+"Port": 8888,
+...
+}
+}
+]
+```
+
+解析JSON，我们就能得到实例的IP 地址和端口信息。
+
+---
+
+> 本文档由同名 PDF 转换为 Markdown，正文、代码、表格及主要示意图均已保留。

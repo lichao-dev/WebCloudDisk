@@ -5,8 +5,8 @@
 
 #include <workflow/WFFacilities.h>
 
-#include "app/Application.h"
 #include "config/Config.h"
+#include "gateway/GatewayApplication.h"
 #include "log/Log.h"
 
 namespace {
@@ -20,9 +20,8 @@ void signal_handler(int) {
 webdisk::common::Result<std::filesystem::path> parse_config_path(int argc, char* argv[]) {
     if (argc != 3 || std::string_view(argv[1]) != "--config" || std::string_view(argv[2]).empty()) {
         return webdisk::common::Result<std::filesystem::path>::failure(
-            500, "Usage: cloud_disk_server --config <server.ini>");
+            500, "Usage: cloud_disk_api_gateway --config <server.ini>");
     }
-
     return webdisk::common::Result<std::filesystem::path>::success(argv[2]);
 }
 
@@ -41,7 +40,9 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    auto log_result = webdisk::log::Log::init(config.value().log);
+    webdisk::config::Config::Log log_config = config.value().log;
+    log_config.file = log_config.gateway_file;
+    auto log_result = webdisk::log::Log::init(log_config);
     if (!log_result) {
         std::cerr << log_result.error().message << '\n';
         return 1;
@@ -49,29 +50,27 @@ int main(int argc, char* argv[]) {
     LOG_INFO("Configuration: {}", config.value().to_string());
 
     const uint16_t listen_port = config.value().server.port;
-    webdisk::app::Application application{config.take_value()};
+    webdisk::gateway::GatewayApplication application{config.take_value()};
     auto initialized = application.init();
     if (!initialized) {
-        LOG_ERROR("Application initialization failed: status={}", initialized.error().status_code);
+        LOG_ERROR("API gateway initialization failed: status={}", initialized.error().status_code);
         webdisk::log::Log::shutdown();
         return 1;
     }
 
-    // 注册信号，优雅退出
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
 
     if (application.start() != 0) {
-        LOG_ERROR("HTTP server failed to start on port {}", listen_port);
+        LOG_ERROR("API gateway failed to start on port {}", listen_port);
         webdisk::log::Log::shutdown();
         return 1;
     }
 
-    LOG_INFO("WebCloudDisk listening on port {}", listen_port);
+    LOG_INFO("API gateway listening on port {}", listen_port);
     wait_group.wait();
     application.stop();
-    LOG_INFO("WebCloudDisk stopped");
+    LOG_INFO("API gateway stopped");
     webdisk::log::Log::shutdown();
-
     return 0;
 }
