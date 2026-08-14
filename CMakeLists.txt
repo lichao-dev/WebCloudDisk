@@ -130,6 +130,13 @@ target_link_libraries(webdisk_srpc_runtime INTERFACE
     "${CMAKE_DL_LIBS}"
 )
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # Ubuntu 默认启用 --as-needed，可能在后续静态库产生引用前丢弃 OpenSSL 和 zlib。
+    target_link_options(webdisk_srpc_runtime INTERFACE
+        "LINKER:--no-as-needed"
+    )
+endif()
+
 # OSS SDK 使用系统 curl 和 OpenSSL，避免配置阶段下载依赖。
 set(BUILD_TESTS OFF)
 set(BUILD_SAMPLES OFF)
