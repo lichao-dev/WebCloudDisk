@@ -420,7 +420,9 @@ LOG_CRITICAL(...)
 - rabbitmq-c 0.18.0：由主项目 CMake 编译为静态库。
 - SimpleAmqpClient 2.6.0：由主项目 CMake 编译为静态库，并链接同一构建树中的 rabbitmq-c target。
 - sRPC 0.10.4：源码位于 `third_party/srpc`，使用项目内 `libsrpc.a` 和 `srpc_generator`，不安装到系统。
-- Protobuf 35.1、Snappy 1.2.2、LZ4 1.10.0：由 macOS Homebrew 提供；CMake 从当前 `protoc` 前缀查找。
+- Protobuf、Snappy 和 LZ4 使用当前平台的系统安装：macOS Homebrew 当前为 35.1、1.2.2 和 1.10.0；
+  Ubuntu 24.04 已验证 Protobuf 3.21.12。CMake 优先从当前 `protoc` 前缀查找 Config 包，缺失时回退到
+  `FindProtobuf` 模块。
 - 系统依赖：OpenSSL、zlib、Threads、Boost chrono。
 
 标准构建命令：
@@ -442,8 +444,8 @@ ctest --test-dir build --output-on-failure
 -DWorkflow_DIR="${PROJECT_ROOT}/third_party/workflow"
 ```
 
-macOS 上 sRPC 只构建 `srpc-static` 和 `srpc_generator`，并使用 C++17 兼容 Homebrew Protobuf；详细说明见
-`docs/第三方库编译与迁移指南.md`。
+macOS 和 Ubuntu 上 sRPC 都只构建 `srpc-static` 和 `srpc_generator`；macOS 使用 C++17 兼容 Homebrew
+Protobuf。两个平台的详细命令见 `docs/第三方库编译与迁移指南.md`。
 
 ## 13. 代码风格与既定偏好
 

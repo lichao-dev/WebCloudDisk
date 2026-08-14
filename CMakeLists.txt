@@ -19,13 +19,15 @@ find_package(CURL REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(Threads REQUIRED)
 
-# 从当前 protoc 所在前缀查找 Protobuf CMake 包。macOS Homebrew 默认位于
-# /opt/homebrew，Intel Mac 通常位于 /usr/local，这里不硬编码任一架构路径。
+# 优先从当前 protoc 所在前缀查找 Protobuf Config 包；Ubuntu 发行版
+# 未提供 ProtobufConfig.cmake 时，回退到 CMake 内置的 FindProtobuf 模块。
 find_program(WEB_DISK_PROTOC_EXECUTABLE protoc REQUIRED)
 get_filename_component(WEB_DISK_PROTOBUF_BIN_DIR "${WEB_DISK_PROTOC_EXECUTABLE}" DIRECTORY)
 get_filename_component(WEB_DISK_PROTOBUF_PREFIX "${WEB_DISK_PROTOBUF_BIN_DIR}" DIRECTORY)
 list(PREPEND CMAKE_PREFIX_PATH "${WEB_DISK_PROTOBUF_PREFIX}")
-find_package(Protobuf CONFIG REQUIRED)
+set(CMAKE_FIND_PACKAGE_PREFER_CONFIG TRUE)
+find_package(Protobuf REQUIRED)
+unset(CMAKE_FIND_PACKAGE_PREFER_CONFIG)
 
 
 # =========================
