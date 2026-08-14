@@ -7,8 +7,12 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# 可执行文件统一输出到项目根目录 bin
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/bin")
+# 测试程序等默认输出到 build/bin
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+set(WEB_DISK_RUNTIME_CONFIGS DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)
+foreach(CONFIG_TYPE IN LISTS WEB_DISK_RUNTIME_CONFIGS)
+    set("CMAKE_RUNTIME_OUTPUT_DIRECTORY_${CONFIG_TYPE}" "${CMAKE_BINARY_DIR}/bin")
+endforeach()
 
 
 # =========================
@@ -338,6 +342,24 @@ add_executable(cloud_disk_file_service
     src/file_service/main.cc
     src/rpc/FileRpcServiceImpl.cc
 )
+
+set(WEB_DISK_SERVICE_TARGETS
+    cloud_disk_backup_worker
+    cloud_disk_api_gateway
+    cloud_disk_user_service
+    cloud_disk_file_service
+)
+
+# 正式程序直接输出到项目根目录 bin，便于部署时与测试程序区分。
+set_target_properties(${WEB_DISK_SERVICE_TARGETS} PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/bin"
+)
+
+foreach(CONFIG_TYPE IN LISTS WEB_DISK_RUNTIME_CONFIGS)
+    set_target_properties(${WEB_DISK_SERVICE_TARGETS} PROPERTIES
+        "RUNTIME_OUTPUT_DIRECTORY_${CONFIG_TYPE}" "${CMAKE_SOURCE_DIR}/bin"
+    )
+endforeach()
 
 target_link_libraries(cloud_disk_backup_worker PRIVATE
     cloud_disk_core
