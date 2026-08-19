@@ -12,7 +12,7 @@
 #include "config/Config.h"
 #include "database/MySqlClient.h"
 #include "discovery/ConsulServiceRegistrar.h"
-#include "log/Log.h"
+#include "log/LogShutdownGuard.h"
 #include "messaging/RabbitMqBackupTaskPublisher.h"
 #include "repository/FileRepository.h"
 #include "rpc/FileRpcServiceImpl.h"
@@ -56,6 +56,7 @@ int main(int argc, char* argv[]) {
         std::cerr << log_result.error().message << '\n';
         return 1;
     }
+    webdisk::log::LogShutdownGuard log_shutdown_guard;
     LOG_INFO("Configuration: {}", config.to_string());
 
     // 初始化文件服务所依赖的数据库、元数据仓库和本地文件存储
@@ -65,7 +66,6 @@ int main(int argc, char* argv[]) {
     auto storage_result = storage.init();
     if (!storage_result) {
         LOG_ERROR("File storage initialization failed: status={}", storage_result.error().status_code);
-        webdisk::log::Log::shutdown();
         return 1;
     }
 
@@ -77,7 +77,6 @@ int main(int argc, char* argv[]) {
         auto publisher_result = webdisk::messaging::RabbitMqBackupTaskPublisher::create(config.rabbitmq);
         if (!publisher_result) {
             LOG_ERROR("Backup publisher initialization failed: status={}", publisher_result.error().status_code);
-            webdisk::log::Log::shutdown();
             return 1;
         }
         backup_task_publisher = publisher_result.take_value();
@@ -96,7 +95,6 @@ int main(int argc, char* argv[]) {
     srpc::SRPCServer server{&server_params};
     if (server.add_service(&rpc_service) != 0) {
         LOG_ERROR("Failed to register file RPC service");
-        webdisk::log::Log::shutdown();
         return 1;
     }
 
@@ -105,7 +103,6 @@ int main(int argc, char* argv[]) {
 
     if (server.start(config.rpc.file_service_port) != 0) {
         LOG_ERROR("File RPC service failed to start on port {}", config.rpc.file_service_port);
-        webdisk::log::Log::shutdown();
         return 1;
     }
 
@@ -117,7 +114,6 @@ int main(int argc, char* argv[]) {
         LOG_ERROR("File RPC service Consul client initialization failed: status={}",
                   registrar_result.error().status_code);
         server.stop();
-        webdisk::log::Log::shutdown();
         return 1;
     }
     auto registrar = registrar_result.take_value();
@@ -127,7 +123,6 @@ int main(int argc, char* argv[]) {
         LOG_ERROR("File RPC service Consul registration failed: status={}, error={}", registration.error().status_code,
                   registration.error().message);
         server.stop();
-        webdisk::log::Log::shutdown();
         return 1;
     }
     LOG_INFO("File RPC service registered with Consul: service={}, instance={}", config.consul.file_service_name,
@@ -148,6 +143,5 @@ int main(int argc, char* argv[]) {
     server.stop();
     LOG_INFO("File RPC service stopped");
 
-    webdisk::log::Log::shutdown();
     return 0;
 }

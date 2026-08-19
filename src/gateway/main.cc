@@ -7,7 +7,7 @@
 
 #include "config/Config.h"
 #include "gateway/GatewayApplication.h"
-#include "log/Log.h"
+#include "log/LogShutdownGuard.h"
 
 namespace {
 
@@ -45,6 +45,7 @@ int main(int argc, char* argv[]) {
         std::cerr << log_result.error().message << '\n';
         return 1;
     }
+    webdisk::log::LogShutdownGuard log_shutdown_guard;
     LOG_INFO("Configuration: {}", config.value().to_string());
 
     const uint16_t listen_port = config.value().server.port;
@@ -52,7 +53,6 @@ int main(int argc, char* argv[]) {
     auto initialized = application.init();
     if (!initialized) {
         LOG_ERROR("API gateway initialization failed: status={}", initialized.error().status_code);
-        webdisk::log::Log::shutdown();
         return 1;
     }
 
@@ -61,7 +61,6 @@ int main(int argc, char* argv[]) {
 
     if (application.start() != 0) {
         LOG_ERROR("API gateway failed to start on port {}", listen_port);
-        webdisk::log::Log::shutdown();
         return 1;
     }
 
@@ -69,6 +68,5 @@ int main(int argc, char* argv[]) {
     wait_group.wait();
     application.stop();
     LOG_INFO("API gateway stopped");
-    webdisk::log::Log::shutdown();
     return 0;
 }

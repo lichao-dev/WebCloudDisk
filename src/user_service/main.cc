@@ -8,7 +8,7 @@
 #include "config/Config.h"
 #include "database/MySqlClient.h"
 #include "discovery/ConsulServiceRegistrar.h"
-#include "log/Log.h"
+#include "log/LogShutdownGuard.h"
 #include "repository/UserRepository.h"
 #include "rpc/UserRpcServiceImpl.h"
 #include "security/JwtService.h"
@@ -53,6 +53,7 @@ int main(int argc, char* argv[]) {
         std::cerr << log_result.error().message << '\n';
         return 1;
     }
+    webdisk::log::LogShutdownGuard log_shutdown_guard;
     LOG_INFO("Configuration: {}", config.to_string());
 
     // 初始化用户服务所依赖的数据库、Repository、安全组件和业务服务
@@ -70,7 +71,6 @@ int main(int argc, char* argv[]) {
     srpc::SRPCServer server{&server_params};
     if (server.add_service(&rpc_service) != 0) {
         LOG_ERROR("Failed to register user RPC service");
-        webdisk::log::Log::shutdown();
         return 1;
     }
 
@@ -79,7 +79,6 @@ int main(int argc, char* argv[]) {
 
     if (server.start(config.rpc.user_service_port) != 0) {
         LOG_ERROR("User RPC service failed to start on port {}", config.rpc.user_service_port);
-        webdisk::log::Log::shutdown();
         return 1;
     }
 
@@ -91,7 +90,6 @@ int main(int argc, char* argv[]) {
         LOG_ERROR("User RPC service Consul client initialization failed: status={}",
                   registrar_result.error().status_code);
         server.stop();
-        webdisk::log::Log::shutdown();
         return 1;
     }
     auto registrar = registrar_result.take_value();
@@ -101,7 +99,6 @@ int main(int argc, char* argv[]) {
         LOG_ERROR("User RPC service Consul registration failed: status={}, error={}", registration.error().status_code,
                   registration.error().message);
         server.stop();
-        webdisk::log::Log::shutdown();
         return 1;
     }
     LOG_INFO("User RPC service registered with Consul: service={}, instance={}", config.consul.user_service_name,
@@ -122,6 +119,5 @@ int main(int argc, char* argv[]) {
     server.stop();
     LOG_INFO("User RPC service stopped");
 
-    webdisk::log::Log::shutdown();
     return 0;
 }

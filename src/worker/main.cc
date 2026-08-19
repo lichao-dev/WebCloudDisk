@@ -5,7 +5,7 @@
 
 #include "common/Result.h"
 #include "config/Config.h"
-#include "log/Log.h"
+#include "log/LogShutdownGuard.h"
 #include "storage/FileStorage.h"
 #include "storage/OssBackupStorage.h"
 #include "worker/BackupWorker.h"
@@ -47,20 +47,19 @@ int main(int argc, char* argv[]) {
         std::cerr << log_result.error().message << '\n';
         return 1;
     }
+    webdisk::log::LogShutdownGuard log_shutdown_guard;
     LOG_INFO("Configuration: {}", config.value().to_string());
 
     webdisk::storage::FileStorage file_storage{config.value().storage.root};
     auto storage_initialized = file_storage.init();
     if (!storage_initialized) {
         LOG_ERROR("Backup worker local storage initialization failed");
-        webdisk::log::Log::shutdown();
         return 1;
     }
 
     auto oss_backup_storage = webdisk::storage::OssBackupStorage::create(config.value().oss);
     if (!oss_backup_storage) {
         LOG_ERROR("Backup worker OSS initialization failed");
-        webdisk::log::Log::shutdown();
         return 1;
     }
 
@@ -68,7 +67,6 @@ int main(int argc, char* argv[]) {
         webdisk::worker::BackupWorker::create(config.value().rabbitmq, file_storage, *oss_backup_storage.value());
     if (!worker) {
         LOG_ERROR("Backup worker initialization failed");
-        webdisk::log::Log::shutdown();
         return 1;
     }
 
@@ -78,10 +76,8 @@ int main(int argc, char* argv[]) {
     auto result = worker.value()->run([] { return stop_requested != 0; });
     if (!result) {
         LOG_ERROR("Backup worker exited with an error: {}", result.error().message);
-        webdisk::log::Log::shutdown();
         return 1;
     }
 
-    webdisk::log::Log::shutdown();
     return 0;
 }
