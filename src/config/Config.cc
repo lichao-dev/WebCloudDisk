@@ -13,9 +13,9 @@ namespace config {
 namespace {
 
 enum class ConsulScope {
-    gateway,
-    user_service,
-    file_service,
+    GATEWAY,
+    USER_SERVICE,
+    FILE_SERVICE,
 };
 
 // INIReader::GetInteger() 会把 "9527x" 这类字符串解析成部分有效的数字。
@@ -284,20 +284,20 @@ common::Result<Consul> load_consul(const INIReader& reader, ConsulScope scope) {
         return common::Result<Consul>::failure(500, "consul.datacenter must not be empty");
     }
 
-    if (scope == ConsulScope::gateway || scope == ConsulScope::user_service) {
+    if (scope == ConsulScope::GATEWAY || scope == ConsulScope::USER_SERVICE) {
         config.user_service_name = reader.Get("consul", "user_service_name", "webdisk-user-service");
         if (config.user_service_name.empty()) {
             return common::Result<Consul>::failure(500, "consul.user_service_name must not be empty");
         }
     }
-    if (scope == ConsulScope::gateway || scope == ConsulScope::file_service) {
+    if (scope == ConsulScope::GATEWAY || scope == ConsulScope::FILE_SERVICE) {
         config.file_service_name = reader.Get("consul", "file_service_name", "webdisk-file-service");
         if (config.file_service_name.empty()) {
             return common::Result<Consul>::failure(500, "consul.file_service_name must not be empty");
         }
     }
 
-    if (scope != ConsulScope::gateway) {
+    if (scope != ConsulScope::GATEWAY) {
         auto interval = parse_unsigned(reader.Get("consul", "health_check_interval_ms", "5000"),
                                        "consul.health_check_interval_ms", 1000, 600000);
         auto timeout = parse_unsigned(reader.Get("consul", "health_check_timeout_ms", "2000"),
@@ -396,13 +396,13 @@ std::string consul_summary(const Consul& config, ConsulScope scope) {
     std::ostringstream output;
     output << std::boolalpha << "consul{url=" << config.url << ", datacenter=" << config.datacenter
            << ", token_configured=" << !config.token.empty();
-    if (scope == ConsulScope::gateway || scope == ConsulScope::user_service) {
+    if (scope == ConsulScope::GATEWAY || scope == ConsulScope::USER_SERVICE) {
         output << ", user_service_name=" << config.user_service_name;
     }
-    if (scope == ConsulScope::gateway || scope == ConsulScope::file_service) {
+    if (scope == ConsulScope::GATEWAY || scope == ConsulScope::FILE_SERVICE) {
         output << ", file_service_name=" << config.file_service_name;
     }
-    if (scope != ConsulScope::gateway) {
+    if (scope != ConsulScope::GATEWAY) {
         output << ", health_check_host=" << config.health_check_host
                << ", health_check_interval_ms=" << config.health_check_interval_ms
                << ", health_check_timeout_ms=" << config.health_check_timeout_ms
@@ -428,7 +428,7 @@ common::Result<GatewayConfig> GatewayConfig::load(const std::filesystem::path& p
         auto auth = load_auth(reader, false, false);
         auto storage = load_storage(reader, working_dir, false, true);
         auto rpc = load_gateway_rpc(reader);
-        auto consul = load_consul(reader, ConsulScope::gateway);
+        auto consul = load_consul(reader, ConsulScope::GATEWAY);
         auto log = load_log(reader, working_dir, "./log/cloud_disk_api_gateway.log");
         if (!server)
             return forward_error<GatewayConfig>(server);
@@ -460,7 +460,7 @@ common::Result<UserServiceConfig> UserServiceConfig::load(const std::filesystem:
             auto database = load_database(reader);
             auto auth = load_auth(reader, true, true);
             auto rpc = load_service_rpc(reader, true);
-            auto consul = load_consul(reader, ConsulScope::user_service);
+            auto consul = load_consul(reader, ConsulScope::USER_SERVICE);
             auto log = load_log(reader, working_dir, "./log/cloud_disk_user_service.log");
             if (!database)
                 return forward_error<UserServiceConfig>(database);
@@ -496,7 +496,7 @@ common::Result<FileServiceConfig> FileServiceConfig::load(const std::filesystem:
             if (!backup_enabled)
                 return forward_error<FileServiceConfig>(backup_enabled);
             auto rpc = load_service_rpc(reader, false);
-            auto consul = load_consul(reader, ConsulScope::file_service);
+            auto consul = load_consul(reader, ConsulScope::FILE_SERVICE);
             auto log = load_log(reader, working_dir, "./log/cloud_disk_file_service.log");
             if (!rpc)
                 return forward_error<FileServiceConfig>(rpc);
@@ -553,7 +553,7 @@ std::string GatewayConfig::to_string() const {
     output << std::boolalpha << "server{port=" << server.port << ", web_root=" << server.web_root.string() << "} "
            << auth_summary(auth, false, false) << " storage{max_file_size=" << storage.max_file_size << "} "
            << "rpc{request_timeout_ms=" << rpc.request_timeout_ms << "} "
-           << consul_summary(consul, ConsulScope::gateway) << " " << log_summary(log);
+           << consul_summary(consul, ConsulScope::GATEWAY) << " " << log_summary(log);
     return output.str();
 }
 
@@ -561,7 +561,7 @@ std::string UserServiceConfig::to_string() const {
     std::ostringstream output;
     output << std::boolalpha << database_summary(database) << " " << auth_summary(auth, true, true)
            << " rpc{user_service=" << rpc.user_service_host << ':' << rpc.user_service_port << "} "
-           << consul_summary(consul, ConsulScope::user_service) << " " << log_summary(log);
+           << consul_summary(consul, ConsulScope::USER_SERVICE) << " " << log_summary(log);
     return output.str();
 }
 
@@ -573,7 +573,7 @@ std::string FileServiceConfig::to_string() const {
         output << rabbitmq_summary(rabbitmq) << " ";
     }
     output << "rpc{file_service=" << rpc.file_service_host << ':' << rpc.file_service_port << "} "
-           << consul_summary(consul, ConsulScope::file_service) << " " << log_summary(log);
+           << consul_summary(consul, ConsulScope::FILE_SERVICE) << " " << log_summary(log);
     return output.str();
 }
 
