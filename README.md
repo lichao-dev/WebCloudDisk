@@ -135,20 +135,40 @@ cp conf/backup-worker.ini.example conf/backup-worker.ini
 - `file-service.ini` 与 `backup-worker.ini` 使用相同的本地存储根目录和 RabbitMQ 业务队列
 - `file-service.ini` 的 `[backup].enabled` 默认开启 RabbitMQ 任务发布；本地不运行 RabbitMQ 时可设为 `false`
 - `backup-worker.ini` 不设启用开关；启动 Worker 本身即表示启用 OSS 备份
-- 两个 RPC 服务的 `[consul]` 配置 TCP 健康检查地址；Docker Desktop 环境默认使用
-  `health_check_host=host.docker.internal`
+- 两个 RPC 服务的 `[consul]` 配置 TCP 健康检查地址。Consul 运行在 Docker 容器而 RPC 服务运行在宿主机时，
+  默认使用 `health_check_host=host.docker.internal`
+- macOS Docker Desktop 默认提供 `host.docker.internal`；Linux Docker Engine 需要在创建 Consul 容器时增加
+  `--add-host=host.docker.internal:host-gateway`
 
 `conf/*.ini` 包含敏感信息，已被 Git 忽略，不应提交；只有 `*.ini.example` 会进入版本库。每个进程只解析并校验
 自己的配置段，无关段不会造成启动失败。配置中的相对路径以程序启动时的工作目录为基准，因此项目约定从项目根目录
 启动服务。
 
-## 启动 macOS 单节点 Consul
+## 启动单节点 Consul
 
-本地开发使用 Docker Desktop 运行单节点 Consul 2.0.3。首次创建容器时执行：
+本地开发使用 Docker 运行单节点 Consul 2.0.3。Consul Agent 运行在容器内，而用户服务和文件服务默认直接运行
+在宿主机，因此 Consul 需要能够访问宿主机上的 RPC 端口 `9601` 和 `9602`。
+
+示例配置使用：
+
+```ini
+health_check_host=host.docker.internal
+```
+
+不同宿主机系统对 `host.docker.internal` 的支持方式不同。
+
+首次使用时先拉取镜像并创建持久化数据卷：
 
 ```bash
 docker pull hashicorp/consul:2.0.3
 docker volume create consul_data
+```
+
+### macOS Docker Desktop
+
+Docker Desktop for macOS 默认提供 `host.docker.internal`，可以直接创建 Consul 容器：
+
+```bash
 docker run \
   --name consul \
   -d \
@@ -166,15 +186,100 @@ docker run \
   -data-dir=/consul/data
 ```
 
-后续只需执行 `docker start consul`。通过下面的命令检查成员，并访问
-[http://localhost:8500](http://localhost:8500) 查看 UI：
+### Linux / Ubuntu Docker Engine
+
+Linux Docker Engine 默认不一定为容器提供 `host.docker.internal`。为了让 Consul 容器能够通过该主机名访问
+宿主机上的 RPC 服务，创建容器时需要增加：
+
+```bash
+--add-host=host.docker.internal:host-gateway
+```
+
+完整命令：
+
+```bash
+docker run \
+  --name consul \
+  -d \
+  --restart unless-stopped \
+  --add-host=host.docker.internal:host-gateway \
+  -p 8500:8500 \
+  -p 8600:8600/udp \
+  -v consul_data:/consul/data \
+  hashicorp/consul:2.0.3 \
+  consul agent \
+  -server \
+  -ui \
+  -node=consul-server \
+  -bootstrap-expect=1 \
+  -client=0.0.0.0 \
+  -data-dir=/consul/data
+```
+
+如果之前已经创建了没有配置该映射的 Consul 容器，可以删除并重新创建：
+
+```bash
+docker rm -f consul
+```
+
+然后重新执行上面的 Linux `docker run` 命令。
+
+删除容器不会删除命名卷 `consul_data`，因此使用该数据卷保存的 Consul 数据仍会保留。
+
+创建完成后，可以验证 Linux 容器是否已经能够解析宿主机地址：
+
+```bash
+docker exec consul getent hosts host.docker.internal
+```
+
+正常情况下会看到类似：
+
+```text
+172.17.0.1 host.docker.internal
+```
+
+还可以检查 Consul 集群成员：
 
 ```bash
 docker exec consul consul members
 ```
 
-Consul Agent 运行在容器内，所以它不能通过 `127.0.0.1` 检查宿主机 RPC 端口。示例配置使用
-`host.docker.internal`；如果改为 macOS 原生 Consul，需要相应调整 `[consul].health_check_host`。
+访问下面的地址查看 Consul UI：
+
+```text
+http://localhost:8500
+```
+
+后续机器重启或容器停止后，只需：
+
+```bash
+docker start consul
+```
+
+如果重新创建了 Consul 容器，需要重新启动用户 RPC 服务和文件 RPC 服务，使它们重新向 Consul 注册：
+
+```bash
+./bin/cloud_disk_user_service --config conf/user-service.ini
+./bin/cloud_disk_file_service --config conf/file-service.ini
+```
+
+Consul 会分别检查宿主机的 `9601` 和 `9602` TCP 端口。健康检查通过后，
+`webdisk-user-service` 和 `webdisk-file-service` 应在 Consul UI 中显示为 `passing`。
+
+如果服务已经启动但 Consul UI 中没有对应实例，可以首先检查：
+
+```bash
+docker exec consul getent hosts host.docker.internal
+```
+
+Linux 下如果该命令没有输出，通常说明创建 Consul 容器时缺少：
+
+```bash
+--add-host=host.docker.internal:host-gateway
+```
+
+如果改为宿主机原生运行 Consul，而不是 Docker 中的 Consul，则应根据实际网络环境调整
+`[consul].health_check_host`，不需要使用 `host.docker.internal`。
 
 ## 构建和测试
 
