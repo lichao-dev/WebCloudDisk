@@ -132,7 +132,7 @@ Config
 
 ## 4. 启动与停止
 
-各正式进程的启动命令必须写全，并传入自己的配置文件：
+各正式进程都必须传入自己的配置文件，`-c` 与 `--config` 等价：
 
 ```bash
 ./build/bin/cloud_disk_user_service --config conf/user-service.ini
@@ -140,12 +140,13 @@ Config
 ./build/bin/cloud_disk_api_gateway --config conf/gateway.ini
 ```
 
-只执行程序名或参数数量不等于 3 会报用法错误并退出。默认 HTTP、用户 RPC、文件 RPC 端口分别是
-`9527`、`9601`、`9602`。
+`-h` 与 `--help` 会输出帮助并直接返回 `0`，不会加载配置、初始化日志或连接外部服务。缺少配置、
+重复参数、缺少选项值或未知参数属于命令行错误并返回 `2`；配置、初始化或运行失败返回 `1`。
+默认 HTTP、用户 RPC、文件 RPC 端口分别是 `9527`、`9601`、`9602`。
 
 各进程 `main()` 的共同顺序：
 
-1. 解析 `--config <path>`。
+1. 解析 `-c <path>`/`--config <path>`，或在请求帮助时直接退出。
 2. 对应进程配置类型的 `load()`。
 3. `Log::init()`。
 4. 记录去敏后的 `Config::to_string()`。

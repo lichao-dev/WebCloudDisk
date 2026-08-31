@@ -374,6 +374,9 @@ cmake --install build --prefix "$PWD"
 ./bin/cloud_disk_backup_worker --config conf/backup-worker.ini
 ```
 
+四个正式进程都支持 `-c` 作为 `--config` 的等价短选项；`-h` 和 `--help` 会输出帮助并直接退出，
+不会加载配置或初始化外部服务。命令行使用错误返回 `2`，配置、初始化或运行失败返回 `1`。
+
 默认端口分别为 HTTP `9527`、用户 RPC `9601`、文件 RPC `9602`。所有进程都可通过 `Ctrl+C` 正常停止。Worker
 需要继承 `OSS_ACCESS_KEY_ID`、`OSS_ACCESS_KEY_SECRET` 和可选的 `OSS_SESSION_TOKEN` 环境变量。
 

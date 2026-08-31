@@ -208,6 +208,8 @@ add_library(SimpleAmqpClient::SimpleAmqpClient ALIAS SimpleAmqpClient)
 # =========================
 add_library(cloud_disk_core STATIC
     # 通用组件
+    src/common/ConfigCommandLine.cc
+
     # 配置管理
     src/config/Config.cc
 
@@ -395,6 +397,28 @@ install(TARGETS
 include(CTest)
 
 if(BUILD_TESTING)
+
+    set(WEB_DISK_COMMAND_LINE_TESTS)
+    foreach(SERVICE_TARGET IN LISTS WEB_DISK_SERVICE_TARGETS)
+        add_test(
+            NAME ${SERVICE_TARGET}_help
+            COMMAND ${SERVICE_TARGET} --help
+        )
+
+        add_test(
+            NAME ${SERVICE_TARGET}_short_help
+            COMMAND ${SERVICE_TARGET} -h
+        )
+
+        list(APPEND WEB_DISK_COMMAND_LINE_TESTS
+            ${SERVICE_TARGET}_help
+            ${SERVICE_TARGET}_short_help
+        )
+    endforeach()
+
+    set_tests_properties(${WEB_DISK_COMMAND_LINE_TESTS} PROPERTIES
+        PASS_REGULAR_EXPRESSION "Options:"
+    )
 
     add_executable(cloud_disk_core_tests
         tests/core_tests.cc

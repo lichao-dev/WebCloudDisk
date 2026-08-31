@@ -1,10 +1,9 @@
 #include <csignal>
-#include <filesystem>
 #include <iostream>
-#include <string_view>
 
 #include <workflow/WFFacilities.h>
 
+#include "common/ConfigCommandLine.h"
 #include "config/Config.h"
 #include "gateway/GatewayApplication.h"
 #include "log/LogShutdownGuard.h"
@@ -17,24 +16,28 @@ void signal_handler(int) {
     wait_group.done();
 }
 
-webdisk::common::Result<std::filesystem::path> parse_config_path(int argc, char* argv[]) {
-    if (argc != 3 || std::string_view(argv[1]) != "--config" || std::string_view(argv[2]).empty()) {
-        return webdisk::common::Result<std::filesystem::path>::failure(
-            500, "Usage: cloud_disk_api_gateway --config <gateway.ini>");
-    }
-    return webdisk::common::Result<std::filesystem::path>::success(argv[2]);
+const char* usage() {
+    return "Usage: cloud_disk_api_gateway -c <file>\n"
+           "\n"
+           "Options:\n"
+           "  -c, --config <file>    Path to the gateway INI configuration\n"
+           "  -h, --help             Show this help message\n";
 }
 
 } // namespace
 
 int main(int argc, char* argv[]) {
-    auto config_path = parse_config_path(argc, argv);
-    if (!config_path) {
-        std::cerr << config_path.error().message << '\n';
-        return 1;
+    auto options = webdisk::common::parse_config_command_line(argc, argv);
+    if (!options) {
+        std::cerr << "Error: " << options.error().message << "\n\n" << usage();
+        return 2;
+    }
+    if (options.value().show_help) {
+        std::cout << usage();
+        return 0;
     }
 
-    auto config = webdisk::config::GatewayConfig::load(config_path.value());
+    auto config = webdisk::config::GatewayConfig::load(options.value().config_file.value());
     if (!config) {
         std::cerr << config.error().message << '\n';
         return 1;

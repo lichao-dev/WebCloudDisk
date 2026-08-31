@@ -8,7 +8,7 @@ port=3306
 username=change_me
 password=change_me
 ; 使用的数据库名称
-database=CloudDisk
+database=cloud_disk
 ; 数据库连接失败时最大重试次数
 retry_max=3
 

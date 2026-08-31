@@ -1,3 +1,4 @@
+#include "common/ConfigCommandLine.h"
 #include "config/Config.h"
 #include "discovery/ConsulServiceDiscovery.h"
 #include "discovery/ConsulServiceRegistrar.h"
@@ -15,6 +16,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <initializer_list>
 #include <iostream>
 #include <iterator>
 #include <optional>
@@ -54,6 +56,76 @@ std::filesystem::path make_test_root() {
     const auto root = std::filesystem::temp_directory_path() / ("web-cloud-disk-tests-" + std::to_string(stamp));
     std::filesystem::create_directories(root);
     return root;
+}
+
+webdisk::common::Result<webdisk::common::ConfigCommandLineOptions>
+parse_config_arguments(std::initializer_list<const char*> arguments) {
+    std::vector<std::string> argument_storage;
+    argument_storage.reserve(arguments.size());
+    for (const char* argument : arguments) {
+        argument_storage.emplace_back(argument);
+    }
+
+    std::vector<char*> argument_pointers;
+    argument_pointers.reserve(argument_storage.size());
+    for (std::string& argument : argument_storage) {
+        argument_pointers.push_back(argument.data());
+    }
+
+    return webdisk::common::parse_config_command_line(static_cast<int>(argument_pointers.size()),
+                                                      argument_pointers.data());
+}
+
+void test_config_command_line() {
+    auto short_config = parse_config_arguments({"program", "-c", "conf/service.ini"});
+    assert(short_config);
+    assert(short_config.value().config_file == "conf/service.ini");
+    assert(!short_config.value().show_help);
+
+    auto long_config = parse_config_arguments({"program", "--config", "conf/service.ini"});
+    assert(long_config);
+    assert(long_config.value().config_file == "conf/service.ini");
+
+    auto short_help = parse_config_arguments({"program", "-h"});
+    assert(short_help);
+    assert(short_help.value().show_help);
+    assert(!short_help.value().config_file.has_value());
+
+    auto long_help = parse_config_arguments({"program", "--help"});
+    assert(long_help);
+    assert(long_help.value().show_help);
+
+    auto help_with_config = parse_config_arguments({"program", "--help", "-c", "conf/service.ini"});
+    assert(help_with_config);
+    assert(help_with_config.value().show_help);
+    assert(help_with_config.value().config_file == "conf/service.ini");
+
+    auto missing_config = parse_config_arguments({"program"});
+    assert(!missing_config);
+    assert(missing_config.error().message == "--config is required");
+
+    auto missing_path = parse_config_arguments({"program", "-c"});
+    assert(!missing_path);
+    assert(missing_path.error().message == "--config requires a file path");
+
+    auto option_as_path = parse_config_arguments({"program", "--config", "-h"});
+    assert(!option_as_path);
+    assert(option_as_path.error().message == "--config requires a file path");
+
+    auto duplicate_config = parse_config_arguments({"program", "-c", "first.ini", "--config", "second.ini"});
+    assert(!duplicate_config);
+    assert(duplicate_config.error().message == "--config may only be specified once");
+
+    auto duplicate_help = parse_config_arguments({"program", "-h", "--help"});
+    assert(!duplicate_help);
+    assert(duplicate_help.error().message == "--help may only be specified once");
+
+    auto unknown = parse_config_arguments({"program", "--unknown"});
+    assert(!unknown);
+    assert(unknown.error().message == "Unknown argument: --unknown");
+
+    assert(!parse_config_arguments({"program", "--config=conf/service.ini"}));
+    assert(!parse_config_arguments({"program", "-cconf/service.ini"}));
 }
 
 void test_config(const std::filesystem::path& root) {
@@ -365,6 +437,7 @@ void test_logging(const std::filesystem::path& root) {
 
 int main() {
     const auto root = make_test_root();
+    test_config_command_line();
     test_config(root);
     test_consul_service_identity();
     test_consul_service_discovery();
