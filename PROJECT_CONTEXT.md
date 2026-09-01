@@ -248,22 +248,31 @@ nlohmann::json::parse(request->body(), nullptr, false)
 
 ## 7. 异步任务与线程模型
 
-项目没有调用 `WORKFLOW_library_init()`，因此使用 Workflow 默认线程设置：
+四个正式程序是四个独立进程。API Gateway、User Service 和 File Service 没有调用
+`WORKFLOW_library_init()`，因此各自使用一套 Workflow 默认线程设置：
 
 - Poller：4 个，负责 HTTP/MySQL 非阻塞网络 I/O、accept/read/write 和事件通知。
 - Handler：20 个，负责路由、轻量 Handler、Workflow 完成回调和 MySQL 完成回调。
-- Compute：默认等于在线 CPU 数，负责 CPU 密集或同步阻塞工作。
+- Compute：默认等于在线 CPU 数，首次创建计算任务时按需创建，负责 CPU 密集或同步阻塞工作。
 - DNS：默认 4 个，按需创建。
 - 主线程：1 个，负责启动和等待退出。
+- spdlog 周期刷新线程：1 个，每 3 秒 flush；普通日志写入仍在调用者线程同步执行。
 
 Workflow 根据 `fd % poller_threads` 把 socket 注册到某个 Poller。监听 socket 通常只有一个，因此 accept 由监听 fd 所属的 Poller 执行；已连接 socket 再根据自身 fd 分散到多个 Poller。
 
-路由线程安排：
+三个网络服务的常驻基线都是 `1 + 4 + 20 + 1 = 26` 个线程；令 `C` 为在线 CPU 数，Compute 活跃后是
+`26 + C`，DNS 也活跃时是 `30 + C`。这些池属于各自进程，不在服务之间共享。
 
-- 注册和上传通过 `server_.POST(path, 0, handler)` 进入 Compute 队列，因为密码哈希、文件哈希和同步写盘较重。
-- 其他路由先在 Handler 线程执行。
-- 登录先异步查 MySQL；查询回调在 Handler 线程中执行，再用 `response->Compute(0, ...)` 把 PBKDF2 验证转移到 Compute。
-- 两处参数 `0` 都是 wfrest 的计算队列 ID，通常对应同一个名为 `wfrest0` 的队列；`POST(..., 0, handler)` 调度整个路由 Handler，`Compute(0, lambda)` 只调度指定 Lambda，并不表示“第 0 个线程”。
+当前任务迁移：
+
+- API Gateway 的普通路由在 Handler 线程执行；只有上传路由通过 `server_.POST(path, 0, handler)` 进入
+  `wfrest0` 计算队列，完成 multipart 解析和 Protobuf 内容复制后，再追加 Consul 发现与 sRPC 任务。
+- User Service 的注册请求把 PBKDF2 哈希投递到 `webdisk-rpc`，登录先异步查询 MySQL，再把 PBKDF2 验证
+  投递到该计算队列。
+- File Service 的上传在 `webdisk-rpc` 中计算 SHA-256 并同步写盘；MySQL 元数据完成后，再次进入计算池同步
+  发布 RabbitMQ 消息。下载先查 MySQL，再进入计算池同步读盘。
+- `wfrest0` 和 `webdisk-rpc` 是命名任务队列，不是线程名，也不强制单线程；任务由本进程的 `C` 个 Compute
+  工作线程执行。两个 RPC 服务中的同名 `webdisk-rpc` 队列也是互相独立的进程内对象。
 
 MySQL 调用链：
 
@@ -285,12 +294,10 @@ Repository/Service 回调在同一调用栈继续生成响应
 `task->start()` 后才会调度。`common::TaskScheduler` 把 Service 与具体请求上下文解耦：RPC 实现通过
 `RPCContext::get_series()` 将数据库或计算任务追加到当前 RPC 序列，业务规则和 Repository 无需了解 sRPC。
 
-登录流程可能经历多次线程角色切换：RPC 服务创建 MySQL 任务 → Poller 负责网络事件 → 查询回调继续业务流程 →
-Compute 验证 PBKDF2；若需要升级密码哈希，还会再追加更新数据库任务。SQL 本身由 MySQL 服务端执行。
+Backup Worker 不使用 Workflow：主线程串行执行阻塞式 RabbitMQ 消费、本地文件读取、OSS 上传和消息确认；
+加上 spdlog 周期刷新线程，项目代码明确创建 2 个线程。信号处理函数只设置停止标志，不是独立线程。
 
-`success()`/`error()` 只设置 `HttpResp`；Workflow 会在当前请求任务序列完成后发送最终响应。
-
-文件元数据插入成功后，MySQL 完成回调通过 `response->Compute(0, ...)` 把阻塞式 RabbitMQ 发布移到 Compute 队列。发布器内部用互斥锁串行访问单个 SimpleAmqpClient Channel，并等待 Broker 的 publisher confirm。
+线程交互总览、四个进程详图和运行时核对命令见 [运行时进程与线程模型](docs/runtime-thread-model.md)。
 
 ## 8. 数据库
 

@@ -1,0 +1,130 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-labelledby="title description">
+  <title id="title">API Gateway 线程模型</title>
+  <desc id="description">展示 API Gateway 的主线程、Workflow Poller 和 Handler、按需 Compute 与 DNS、日志刷新线程，以及 HTTP 请求经过 Consul 发现和 sRPC 调用的线程迁移。</desc>
+  <defs>
+    <marker id="arrow-blue" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto"><path d="M0 0 L8 3 L0 6 Z" fill="#2563eb"/></marker>
+    <marker id="arrow-purple" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto"><path d="M0 0 L8 3 L0 6 Z" fill="#7c3aed"/></marker>
+    <marker id="arrow-green" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto"><path d="M0 0 L8 3 L0 6 Z" fill="#059669"/></marker>
+    <marker id="arrow-gray" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto"><path d="M0 0 L8 3 L0 6 Z" fill="#64748b"/></marker>
+    <style>
+      .title { font: 700 26px -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; fill: #0f172a; }
+      .subtitle { font: 400 14px -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; fill: #64748b; }
+      .head { font: 700 15px -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; fill: #1e293b; }
+      .text { font: 400 12px -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; fill: #475569; }
+      .small { font: 500 11px -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; fill: #64748b; }
+      .label { font: 600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; fill: #334155; paint-order: stroke; stroke: #f8fafc; stroke-width: 4px; }
+      .lane { stroke-width: 1.4; }
+      .blue { fill: #dbeafe; stroke: #60a5fa; }
+      .cyan { fill: #e0f2fe; stroke: #38bdf8; }
+      .purple { fill: #ede9fe; stroke: #a78bfa; }
+      .green { fill: #dcfce7; stroke: #4ade80; }
+      .gray { fill: #f1f5f9; stroke: #94a3b8; }
+      .external { fill: #fff; stroke: #94a3b8; stroke-width: 1.3; }
+      .network { fill: none; stroke: #2563eb; stroke-width: 2.2; marker-end: url(#arrow-blue); }
+      .dispatch { fill: none; stroke: #7c3aed; stroke-width: 2.2; stroke-dasharray: 7 4; marker-end: url(#arrow-purple); }
+      .dns { fill: none; stroke: #059669; stroke-width: 1.8; stroke-dasharray: 5 4; marker-end: url(#arrow-green); }
+      .control { fill: none; stroke: #64748b; stroke-width: 1.7; stroke-dasharray: 3 4; marker-end: url(#arrow-gray); }
+    </style>
+  </defs>
+  <rect width="1280" height="720" rx="18" fill="#f8fafc"/>
+  <text class="title" x="36" y="44">API Gateway 线程模型</text>
+  <text class="subtitle" x="36" y="69">基线 26 个线程；首次上传后 +C 个 Compute；需要主机名解析时再 +4 个 DNS</text>
+
+  <rect x="30" y="105" width="150" height="480" rx="15" fill="#fff" stroke="#cbd5e1"/>
+  <text class="head" x="105" y="137" text-anchor="middle">进程外事件</text>
+  <rect class="external" x="52" y="175" width="106" height="62" rx="11"/>
+  <text class="head" x="105" y="202" text-anchor="middle">浏览器</text>
+  <text class="text" x="105" y="222" text-anchor="middle">HTTP 请求</text>
+  <rect class="external" x="52" y="300" width="106" height="62" rx="11"/>
+  <text class="head" x="105" y="327" text-anchor="middle">Consul</text>
+  <text class="text" x="105" y="347" text-anchor="middle">passing 实例</text>
+  <rect class="external" x="52" y="425" width="106" height="62" rx="11"/>
+  <text class="head" x="105" y="452" text-anchor="middle">User / File</text>
+  <text class="text" x="105" y="472" text-anchor="middle">sRPC 服务</text>
+
+  <rect class="lane gray" x="220" y="105" width="180" height="480" rx="15"/>
+  <text class="head" x="310" y="137" text-anchor="middle">主线程 × 1</text>
+  <rect x="245" y="170" width="130" height="75" rx="10" fill="#fff" stroke="#cbd5e1"/>
+  <text class="text" x="310" y="197" text-anchor="middle">加载配置 / 装配</text>
+  <text class="text" x="310" y="220" text-anchor="middle">启动 HttpServer</text>
+  <rect x="245" y="285" width="130" height="75" rx="10" fill="#fff" stroke="#cbd5e1"/>
+  <text class="text" x="310" y="312" text-anchor="middle">WaitGroup.wait()</text>
+  <text class="text" x="310" y="335" text-anchor="middle">阻塞等待信号</text>
+  <rect x="245" y="400" width="130" height="75" rx="10" fill="#fff" stroke="#cbd5e1"/>
+  <text class="text" x="310" y="427" text-anchor="middle">SIGINT / SIGTERM</text>
+  <text class="text" x="310" y="450" text-anchor="middle">停止 Server</text>
+  <text class="small" x="310" y="555" text-anchor="middle">WaitGroup 不创建线程</text>
+
+  <rect class="lane blue" x="440" y="105" width="180" height="480" rx="15"/>
+  <text class="head" x="530" y="137" text-anchor="middle">Poller × 4</text>
+  <text class="small" x="530" y="158" text-anchor="middle">Workflow 通信池</text>
+  <rect x="465" y="180" width="130" height="70" rx="10" fill="#fff" stroke="#93c5fd"/>
+  <text class="text" x="530" y="207" text-anchor="middle">HTTP accept/read</text>
+  <text class="text" x="530" y="229" text-anchor="middle">write / 事件通知</text>
+  <rect x="465" y="300" width="130" height="70" rx="10" fill="#fff" stroke="#93c5fd"/>
+  <text class="text" x="530" y="327" text-anchor="middle">Consul HTTP I/O</text>
+  <text class="text" x="530" y="349" text-anchor="middle">非阻塞网络</text>
+  <rect x="465" y="420" width="130" height="70" rx="10" fill="#fff" stroke="#93c5fd"/>
+  <text class="text" x="530" y="447" text-anchor="middle">sRPC I/O</text>
+  <text class="text" x="530" y="469" text-anchor="middle">请求 / 响应</text>
+
+  <rect class="lane cyan" x="660" y="105" width="200" height="480" rx="15"/>
+  <text class="head" x="760" y="137" text-anchor="middle">Handler × 20</text>
+  <text class="small" x="760" y="158" text-anchor="middle">路由与网络完成回调</text>
+  <rect x="685" y="180" width="150" height="85" rx="10" fill="#fff" stroke="#7dd3fc"/>
+  <text class="text" x="760" y="207" text-anchor="middle">普通 REST 路由</text>
+  <text class="text" x="760" y="229" text-anchor="middle">JWT / 请求组装</text>
+  <text class="small" x="760" y="250" text-anchor="middle">上传路由除外</text>
+  <rect x="685" y="300" width="150" height="85" rx="10" fill="#fff" stroke="#7dd3fc"/>
+  <text class="text" x="760" y="327" text-anchor="middle">Consul 完成回调</text>
+  <text class="text" x="760" y="349" text-anchor="middle">选择端点并追加 RPC</text>
+  <text class="small" x="760" y="370" text-anchor="middle">同一个 HTTP SeriesWork</text>
+  <rect x="685" y="420" width="150" height="85" rx="10" fill="#fff" stroke="#7dd3fc"/>
+  <text class="text" x="760" y="447" text-anchor="middle">sRPC 完成回调</text>
+  <text class="text" x="760" y="469" text-anchor="middle">构造 HTTP 响应</text>
+  <text class="small" x="760" y="490" text-anchor="middle">再由 Poller 写回</text>
+
+  <rect class="lane purple" x="900" y="105" width="205" height="300" rx="15"/>
+  <text class="head" x="1002.5" y="137" text-anchor="middle">Compute × C（按需）</text>
+  <text class="small" x="1002.5" y="158" text-anchor="middle">命名队列 wfrest0</text>
+  <rect x="925" y="190" width="155" height="145" rx="10" fill="#fff" stroke="#c4b5fd"/>
+  <text class="text" x="1002.5" y="220" text-anchor="middle">仅上传路由</text>
+  <text class="text" x="1002.5" y="246" text-anchor="middle">JWT 校验</text>
+  <text class="text" x="1002.5" y="270" text-anchor="middle">multipart 解析</text>
+  <text class="text" x="1002.5" y="294" text-anchor="middle">Protobuf bytes 复制</text>
+  <text class="small" x="1002.5" y="320" text-anchor="middle">完成后继续 SeriesWork</text>
+  <text class="small" x="1002.5" y="380" text-anchor="middle">队列可由 C 个工作线程并发执行</text>
+
+  <rect class="lane green" x="900" y="435" width="205" height="150" rx="15"/>
+  <text class="head" x="1002.5" y="468" text-anchor="middle">DNS × 4（按需）</text>
+  <text class="text" x="1002.5" y="500" text-anchor="middle">解析 Consul 或 RPC 主机名</text>
+  <text class="small" x="1002.5" y="526" text-anchor="middle">使用 IP 时可能不会创建</text>
+  <text class="small" x="1002.5" y="553" text-anchor="middle">独立于 Compute 池</text>
+
+  <rect class="lane gray" x="1145" y="105" width="105" height="480" rx="15"/>
+  <text class="head" x="1197.5" y="137" text-anchor="middle">日志 × 1</text>
+  <text class="text" x="1197.5" y="178" text-anchor="middle">每 3 秒</text>
+  <text class="text" x="1197.5" y="200" text-anchor="middle">flush</text>
+  <text class="small" x="1197.5" y="245" text-anchor="middle">logger 写入</text>
+  <text class="small" x="1197.5" y="264" text-anchor="middle">仍在调用者</text>
+  <text class="small" x="1197.5" y="283" text-anchor="middle">线程同步完成</text>
+
+  <path class="network" d="M158 205 H465"/><text class="label" x="415" y="193" text-anchor="middle">请求到达</text>
+  <path class="network" d="M595 215 H685"/><text class="label" x="640" y="203" text-anchor="middle">事件回调</text>
+  <path class="dispatch" d="M835 235 H925"/><text class="label" x="880" y="223" text-anchor="middle">仅上传</text>
+  <path class="dispatch" d="M925 320 C885 320 875 330 835 335"/><text class="label" x="880" y="352" text-anchor="middle">追加发现任务</text>
+  <path class="network" d="M685 342 H595"/>
+  <path class="network" d="M465 335 H158"/>
+  <path class="network" d="M158 455 H465"/>
+  <path class="network" d="M595 455 H685"/>
+  <path class="network" d="M685 475 C640 535 585 535 550 490"/><text class="label" x="620" y="545" text-anchor="middle">响应写回浏览器</text>
+  <path class="dns" d="M900 500 C850 500 850 365 835 350"/>
+  <path class="control" d="M375 207 H465"/>
+  <path class="control" d="M375 438 C420 438 420 230 465 230"/>
+  <path class="control" d="M400 325 C430 325 430 325 465 325"/>
+
+  <rect x="35" y="620" width="1210" height="65" rx="12" fill="#fff" stroke="#cbd5e1"/>
+  <text class="head" x="60" y="647">典型上传迁移</text>
+  <text class="text" x="180" y="647">Poller → Handler → wfrest0 / Compute → Poller（Consul）→ Handler → Poller（sRPC）→ Handler → Poller（HTTP 响应）</text>
+  <text class="small" x="60" y="672">同一请求保持任务顺序，但每个阶段不保证由同一个具体工作线程执行。</text>
+</svg>

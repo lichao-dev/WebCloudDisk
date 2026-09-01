@@ -7,6 +7,21 @@ sRPC/Protobuf 的后端服务，实现用户认证、本地文件上传、查询
 
 > 本地磁盘始终是主存储；启用 OSS 与 RabbitMQ 后，Web 服务发布备份任务，独立 Worker 异步上传 OSS。文件删除和文件分享等功能留到后续阶段扩展。
 
+## 系统架构
+
+![WebCloudDisk 系统总体架构](docs/images/system-architecture.svg)
+
+API Gateway 只负责 HTTP 接入、JWT 校验、服务发现和协议转换；用户、文件、备份职责分别由独立进程承担。
+图中的蓝色实线表示同步请求或数据访问，绿色虚线表示服务注册与发现，橙色虚线表示异步备份链路。
+
+## 运行时进程与线程模型
+
+![WebCloudDisk 运行时线程交互总览](docs/images/runtime-thread-overview.svg)
+
+前三个网络服务进程各自拥有独立的 Workflow 线程池；图中的 `C` 表示当前进程启动时检测到的在线 CPU 数。
+Compute 与 DNS 线程池按需创建，因此静态线程公式不是任意时刻的实际线程数。四个进程的职责、任务迁移和
+线程数计算见[运行时进程与线程模型](docs/runtime-thread-model.md)。
+
 ## 第一期功能
 
 - 用户注册、登录和当前用户信息查询
@@ -148,6 +163,8 @@ cp conf/backup-worker.ini.example conf/backup-worker.ini
 
 本地开发使用 Docker 运行单节点 Consul 2.0.3。Consul Agent 运行在容器内，而用户服务和文件服务默认直接运行
 在宿主机，因此 Consul 需要能够访问宿主机上的 RPC 端口 `9601` 和 `9602`。
+
+![Consul 注册、健康检查与动态调用](docs/images/consul-discovery.svg)
 
 示例配置使用：
 
@@ -423,6 +440,13 @@ Authorization: Bearer <token>
 ```
 
 详细字段和业务规则见 [Web 网盘项目说明](docs/Web网盘项目-Markdown/Web网盘项目.md)。
+
+## 上传与异步备份流程
+
+![文件上传与异步 OSS 备份时序](docs/images/upload-backup-sequence.svg)
+
+上传成功以本地内容和 MySQL 元数据写入完成为准。RabbitMQ 发布失败只记录日志，不撤销本地上传；Worker 仅在
+OSS 上传成功后确认消息，上传失败时保持消息未确认并退出，连接关闭后由 Broker 重新入队。
 
 ## 文件存储规则
 

@@ -1,0 +1,158 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1050" viewBox="0 0 1600 1050" role="img" aria-labelledby="title description">
+  <title id="title">WebCloudDisk 文件上传与异步 OSS 备份时序</title>
+  <desc id="description">浏览器上传文件后，网关完成认证和服务发现，文件服务将内容写入本地主存储和 MySQL，再发布 RabbitMQ 任务；独立 Worker 随后读取本地文件并上传 OSS，成功后确认消息。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L9,3 L0,6 Z" fill="#2563eb"/>
+    </marker>
+    <marker id="arrow-return" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L9,3 L0,6 Z" fill="#64748b"/>
+    </marker>
+    <marker id="arrow-async" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L9,3 L0,6 Z" fill="#d97706"/>
+    </marker>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#0f172a" flood-opacity="0.10"/>
+    </filter>
+    <style>
+      .title { font: 700 26px -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; fill: #0f172a; }
+      .subtitle { font: 400 14px -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; fill: #64748b; }
+      .actor { fill: #fff; stroke: #94a3b8; stroke-width: 1.5; filter: url(#shadow); }
+      .actor-title { font: 700 15px -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; fill: #0f172a; }
+      .actor-sub { font: 400 12px -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; fill: #64748b; }
+      .life { stroke: #cbd5e1; stroke-width: 1.5; stroke-dasharray: 5 5; }
+      .call { fill: none; stroke: #2563eb; stroke-width: 2; marker-end: url(#arrow); }
+      .return { fill: none; stroke: #64748b; stroke-width: 1.8; stroke-dasharray: 6 4; marker-end: url(#arrow-return); }
+      .async { fill: none; stroke: #d97706; stroke-width: 2.2; marker-end: url(#arrow-async); }
+      .message { font: 500 14px -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; fill: #334155; paint-order: stroke; stroke: #f8fafc; stroke-width: 4px; stroke-linejoin: round; }
+      .step { font: 700 11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #fff; }
+      .note-title { font: 700 13px -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; fill: #92400e; }
+      .note-text { font: 400 13px -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; fill: #78350f; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="1050" rx="18" fill="#f8fafc"/>
+  <text class="title" x="40" y="46">文件上传与异步 OSS 备份时序</text>
+  <text class="subtitle" x="40" y="72">成功主路径：本地文件和元数据先完成，备份任务随后由独立 Worker 消费</text>
+
+  <g>
+    <rect class="actor" x="25" y="100" width="145" height="68" rx="12"/>
+    <text class="actor-title" x="97.5" y="128" text-anchor="middle">浏览器</text>
+    <text class="actor-sub" x="97.5" y="150" text-anchor="middle">Web 前端</text>
+
+    <rect class="actor" x="205" y="100" width="145" height="68" rx="12" stroke="#3b82f6"/>
+    <text class="actor-title" x="277.5" y="128" text-anchor="middle">API Gateway</text>
+    <text class="actor-sub" x="277.5" y="150" text-anchor="middle">wfrest</text>
+
+    <rect class="actor" x="385" y="100" width="145" height="68" rx="12" stroke="#10b981"/>
+    <text class="actor-title" x="457.5" y="128" text-anchor="middle">Consul</text>
+    <text class="actor-sub" x="457.5" y="150" text-anchor="middle">passing 实例</text>
+
+    <rect class="actor" x="565" y="100" width="145" height="68" rx="12" stroke="#0ea5e9"/>
+    <text class="actor-title" x="637.5" y="128" text-anchor="middle">File Service</text>
+    <text class="actor-sub" x="637.5" y="150" text-anchor="middle">sRPC / 业务逻辑</text>
+
+    <rect class="actor" x="745" y="100" width="145" height="68" rx="12" stroke="#0284c7"/>
+    <text class="actor-title" x="817.5" y="128" text-anchor="middle">本地存储</text>
+    <text class="actor-sub" x="817.5" y="150" text-anchor="middle">root/&lt;sha256&gt;</text>
+
+    <rect class="actor" x="925" y="100" width="145" height="68" rx="12"/>
+    <text class="actor-title" x="997.5" y="128" text-anchor="middle">MySQL</text>
+    <text class="actor-sub" x="997.5" y="150" text-anchor="middle">tbl_file</text>
+
+    <rect class="actor" x="1105" y="100" width="145" height="68" rx="12" stroke="#f59e0b"/>
+    <text class="actor-title" x="1177.5" y="128" text-anchor="middle">RabbitMQ</text>
+    <text class="actor-sub" x="1177.5" y="150" text-anchor="middle">持久化队列</text>
+
+    <rect class="actor" x="1285" y="100" width="145" height="68" rx="12" stroke="#f59e0b"/>
+    <text class="actor-title" x="1357.5" y="128" text-anchor="middle">Backup Worker</text>
+    <text class="actor-sub" x="1357.5" y="150" text-anchor="middle">prefetch = 1</text>
+
+    <rect class="actor" x="1465" y="100" width="110" height="68" rx="12" stroke="#f97316"/>
+    <text class="actor-title" x="1520" y="128" text-anchor="middle">OSS</text>
+    <text class="actor-sub" x="1520" y="150" text-anchor="middle">备份副本</text>
+  </g>
+
+  <g>
+    <line class="life" x1="97.5" y1="168" x2="97.5" y2="995"/>
+    <line class="life" x1="277.5" y1="168" x2="277.5" y2="995"/>
+    <line class="life" x1="457.5" y1="168" x2="457.5" y2="995"/>
+    <line class="life" x1="637.5" y1="168" x2="637.5" y2="995"/>
+    <line class="life" x1="817.5" y1="168" x2="817.5" y2="995"/>
+    <line class="life" x1="997.5" y1="168" x2="997.5" y2="995"/>
+    <line class="life" x1="1177.5" y1="168" x2="1177.5" y2="995"/>
+    <line class="life" x1="1357.5" y1="168" x2="1357.5" y2="995"/>
+    <line class="life" x1="1520" y1="168" x2="1520" y2="995"/>
+  </g>
+
+  <g>
+    <circle cx="116" cy="215" r="12" fill="#2563eb"/><text class="step" x="116" y="219" text-anchor="middle">1</text>
+    <path class="call" d="M98 215 H277"/>
+    <text class="message" x="187" y="204" text-anchor="middle">POST /api/v1/files</text>
+    <text class="message" x="187" y="229" text-anchor="middle">Bearer JWT + multipart file</text>
+
+    <rect x="240" y="250" width="75" height="54" rx="8" fill="#dbeafe" stroke="#3b82f6"/>
+    <text class="message" x="277.5" y="271" text-anchor="middle">校验 JWT</text>
+    <text class="message" x="277.5" y="290" text-anchor="middle">解析表单</text>
+
+    <circle cx="296" cy="335" r="12" fill="#2563eb"/><text class="step" x="296" y="339" text-anchor="middle">2</text>
+    <path class="call" d="M278 335 H457"/>
+    <text class="message" x="367" y="324" text-anchor="middle">查询 file service</text>
+    <text class="message" x="367" y="349" text-anchor="middle">passing=true</text>
+    <path class="return" d="M457 380 H278"/>
+    <text class="message" x="367" y="371" text-anchor="middle">稳定排序后的健康端点</text>
+
+    <circle cx="476" cy="420" r="12" fill="#2563eb"/><text class="step" x="476" y="424" text-anchor="middle">3</text>
+    <path class="call" d="M278 420 H637"/>
+    <text class="message" x="457" y="409" text-anchor="middle">轮询选择端点，sRPC UploadFile</text>
+
+    <rect x="590" y="450" width="95" height="72" rx="8" fill="#e0f2fe" stroke="#0ea5e9"/>
+    <text class="message" x="637.5" y="471" text-anchor="middle">校验大小/文件名</text>
+    <text class="message" x="637.5" y="490" text-anchor="middle">计算 SHA-256</text>
+    <text class="message" x="637.5" y="509" text-anchor="middle">计算队列执行</text>
+
+    <circle cx="656" cy="555" r="12" fill="#2563eb"/><text class="step" x="656" y="559" text-anchor="middle">4</text>
+    <path class="call" d="M638 555 H817"/>
+    <text class="message" x="727" y="544" text-anchor="middle">写 .tmp 后原子 rename</text>
+    <path class="return" d="M817 592 H638"/>
+    <text class="message" x="727" y="583" text-anchor="middle">新建或内容去重成功</text>
+
+    <circle cx="656" cy="635" r="12" fill="#2563eb"/><text class="step" x="656" y="639" text-anchor="middle">5</text>
+    <path class="call" d="M638 635 H997"/>
+    <text class="message" x="817" y="624" text-anchor="middle">INSERT 文件元数据</text>
+    <path class="return" d="M997 672 H638"/>
+    <text class="message" x="817" y="663" text-anchor="middle">file_id</text>
+
+    <circle cx="656" cy="715" r="12" fill="#d97706"/><text class="step" x="656" y="719" text-anchor="middle">6</text>
+    <path class="async" d="M638 715 H1177"/>
+    <text class="message" x="907" y="704" text-anchor="middle">BasicPublish 持久化 JSON 任务（hashcode / size）</text>
+    <path class="return" d="M1177 752 H638"/>
+    <text class="message" x="907" y="743" text-anchor="middle">发布完成或失败（失败只记录日志）</text>
+
+    <circle cx="619" cy="795" r="12" fill="#2563eb"/><text class="step" x="619" y="799" text-anchor="middle">7</text>
+    <path class="return" d="M638 795 H278"/>
+    <text class="message" x="457" y="784" text-anchor="middle">UploadFileResponse</text>
+    <path class="return" d="M278 832 H98"/>
+    <text class="message" x="187" y="823" text-anchor="middle">HTTP 201 Upload successful</text>
+
+    <line x1="40" y1="858" x2="1560" y2="858" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="8 6"/>
+    <text class="note-title" x="50" y="881">异步消费阶段</text>
+
+    <circle cx="1196" cy="910" r="12" fill="#d97706"/><text class="step" x="1196" y="914" text-anchor="middle">8</text>
+    <path class="async" d="M1178 910 H1357"/>
+    <text class="message" x="1267" y="899" text-anchor="middle">消费任务（手动确认）</text>
+    <path class="call" d="M1357 945 H817"/>
+    <text class="message" x="1087" y="934" text-anchor="middle">按 hashcode 读取共享本地文件</text>
+    <path class="async" d="M1357 975 H1520"/>
+    <text class="message" x="1438" y="964" text-anchor="middle">PutObject</text>
+    <path class="return" d="M1520 1005 H1357"/>
+    <text class="message" x="1438" y="996" text-anchor="middle">上传成功</text>
+    <path class="async" d="M1357 1030 H1178"/>
+    <text class="message" x="1268" y="1021" text-anchor="middle">BasicAck</text>
+  </g>
+
+  <rect x="50" y="905" width="620" height="100" rx="12" fill="#fffbeb" stroke="#f59e0b"/>
+  <text class="note-title" x="70" y="934">一致性边界</text>
+  <text class="note-text" x="70" y="958">• 本地磁盘是主存储；数据库失败可能留下无引用文件，但不会留下指向缺失内容的记录。</text>
+  <text class="note-text" x="70" y="980">• RabbitMQ 发布失败不回滚上传；OSS 失败时消息保持未确认，连接关闭后由 Broker 重新入队。</text>
+</svg>

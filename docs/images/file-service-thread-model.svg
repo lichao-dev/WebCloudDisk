@@ -1,0 +1,134 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="740" viewBox="0 0 1280 740" role="img" aria-labelledby="title description">
+  <title id="title">File Service 线程模型</title>
+  <desc id="description">展示 File Service 的主线程、Workflow 通信池、计算池、DNS 和日志刷新线程，以及上传、下载、MySQL、本地文件与 RabbitMQ 发布之间的线程迁移。</desc>
+  <defs>
+    <marker id="blue-arrow" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto"><path d="M0 0 L8 3 L0 6 Z" fill="#2563eb"/></marker>
+    <marker id="purple-arrow" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto"><path d="M0 0 L8 3 L0 6 Z" fill="#7c3aed"/></marker>
+    <marker id="orange-arrow" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto"><path d="M0 0 L8 3 L0 6 Z" fill="#d97706"/></marker>
+    <marker id="green-arrow" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto"><path d="M0 0 L8 3 L0 6 Z" fill="#059669"/></marker>
+    <marker id="gray-arrow" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto"><path d="M0 0 L8 3 L0 6 Z" fill="#64748b"/></marker>
+    <style>
+      .title { font: 700 26px -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; fill: #0f172a; }
+      .subtitle { font: 400 14px -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; fill: #64748b; }
+      .head { font: 700 15px -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; fill: #1e293b; }
+      .text { font: 400 12px -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; fill: #475569; }
+      .small { font: 500 11px -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; fill: #64748b; }
+      .label { font: 600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; fill: #334155; paint-order: stroke; stroke: #f8fafc; stroke-width: 4px; }
+      .lane { stroke-width: 1.4; }
+      .gray { fill: #f1f5f9; stroke: #94a3b8; }
+      .blue { fill: #dbeafe; stroke: #60a5fa; }
+      .cyan { fill: #e0f2fe; stroke: #38bdf8; }
+      .purple { fill: #ede9fe; stroke: #a78bfa; }
+      .green { fill: #dcfce7; stroke: #4ade80; }
+      .external { fill: #fff; stroke: #94a3b8; stroke-width: 1.3; }
+      .network { fill: none; stroke: #2563eb; stroke-width: 2.2; marker-end: url(#blue-arrow); }
+      .dispatch { fill: none; stroke: #7c3aed; stroke-width: 2.2; stroke-dasharray: 7 4; marker-end: url(#purple-arrow); }
+      .blocking { fill: none; stroke: #d97706; stroke-width: 2.2; stroke-dasharray: 8 5; marker-end: url(#orange-arrow); }
+      .dns { fill: none; stroke: #059669; stroke-width: 1.8; stroke-dasharray: 5 4; marker-end: url(#green-arrow); }
+      .control { fill: none; stroke: #64748b; stroke-width: 1.7; stroke-dasharray: 3 4; marker-end: url(#gray-arrow); }
+    </style>
+  </defs>
+  <rect width="1280" height="740" rx="18" fill="#f8fafc"/>
+  <text class="title" x="36" y="44">File Service 线程模型</text>
+  <text class="subtitle" x="36" y="69">基线 26 个线程；首次文件计算或同步文件 I/O 后 +C 个 Compute；需要主机名解析时再 +4 个 DNS</text>
+
+  <rect class="external" x="25" y="135" width="130" height="66" rx="11"/>
+  <text class="head" x="90" y="163" text-anchor="middle">API Gateway</text><text class="text" x="90" y="185" text-anchor="middle">sRPC 请求</text>
+  <rect class="external" x="25" y="250" width="130" height="66" rx="11"/>
+  <text class="head" x="90" y="278" text-anchor="middle">MySQL</text><text class="text" x="90" y="300" text-anchor="middle">文件元数据</text>
+  <rect class="external" x="25" y="365" width="130" height="66" rx="11"/>
+  <text class="head" x="90" y="393" text-anchor="middle">本地文件系统</text><text class="text" x="90" y="415" text-anchor="middle">主存储</text>
+  <rect class="external" x="25" y="480" width="130" height="66" rx="11"/>
+  <text class="head" x="90" y="508" text-anchor="middle">RabbitMQ</text><text class="text" x="90" y="530" text-anchor="middle">publisher confirm</text>
+  <rect class="external" x="25" y="590" width="130" height="58" rx="11"/>
+  <text class="head" x="90" y="615" text-anchor="middle">Consul</text><text class="text" x="90" y="636" text-anchor="middle">注册 / 注销</text>
+
+  <rect class="lane gray" x="195" y="105" width="165" height="540" rx="15"/>
+  <text class="head" x="277.5" y="137" text-anchor="middle">主线程 × 1</text>
+  <rect x="218" y="170" width="119" height="80" rx="10" fill="#fff" stroke="#cbd5e1"/>
+  <text class="text" x="277.5" y="198" text-anchor="middle">初始化 Storage</text>
+  <text class="text" x="277.5" y="221" text-anchor="middle">可选连接 Rabbit</text>
+  <rect x="218" y="290" width="119" height="80" rx="10" fill="#fff" stroke="#cbd5e1"/>
+  <text class="text" x="277.5" y="318" text-anchor="middle">启动 sRPC</text>
+  <text class="text" x="277.5" y="341" text-anchor="middle">注册 Consul</text>
+  <rect x="218" y="410" width="119" height="80" rx="10" fill="#fff" stroke="#cbd5e1"/>
+  <text class="text" x="277.5" y="438" text-anchor="middle">WaitGroup 等信号</text>
+  <text class="text" x="277.5" y="461" text-anchor="middle">注销并停止</text>
+  <text class="small" x="277.5" y="610" text-anchor="middle">不参与请求业务执行</text>
+
+  <rect class="lane blue" x="400" y="105" width="175" height="540" rx="15"/>
+  <text class="head" x="487.5" y="137" text-anchor="middle">Poller × 4</text>
+  <text class="small" x="487.5" y="158" text-anchor="middle">Workflow 通信池</text>
+  <rect x="425" y="170" width="125" height="80" rx="10" fill="#fff" stroke="#93c5fd"/>
+  <text class="text" x="487.5" y="198" text-anchor="middle">sRPC 网络 I/O</text>
+  <text class="small" x="487.5" y="221" text-anchor="middle">accept / read / write</text>
+  <rect x="425" y="290" width="125" height="80" rx="10" fill="#fff" stroke="#93c5fd"/>
+  <text class="text" x="487.5" y="318" text-anchor="middle">MySQL 网络 I/O</text>
+  <text class="small" x="487.5" y="341" text-anchor="middle">非阻塞任务</text>
+  <rect x="425" y="410" width="125" height="80" rx="10" fill="#fff" stroke="#93c5fd"/>
+  <text class="text" x="487.5" y="438" text-anchor="middle">Consul HTTP I/O</text>
+  <text class="small" x="487.5" y="461" text-anchor="middle">启动 / 退出阶段</text>
+
+  <rect class="lane cyan" x="615" y="105" width="195" height="540" rx="15"/>
+  <text class="head" x="712.5" y="137" text-anchor="middle">Handler × 20</text>
+  <text class="small" x="712.5" y="158" text-anchor="middle">RPC 方法与完成回调</text>
+  <rect x="640" y="170" width="145" height="80" rx="10" fill="#fff" stroke="#7dd3fc"/>
+  <text class="text" x="712.5" y="198" text-anchor="middle">校验 RPC 参数</text>
+  <text class="small" x="712.5" y="221" text-anchor="middle">创建 TaskScheduler</text>
+  <rect x="640" y="290" width="145" height="95" rx="10" fill="#fff" stroke="#7dd3fc"/>
+  <text class="text" x="712.5" y="318" text-anchor="middle">MySQL 完成回调</text>
+  <text class="text" x="712.5" y="341" text-anchor="middle">Result / 业务续接</text>
+  <text class="small" x="712.5" y="364" text-anchor="middle">发布或读盘再进 Compute</text>
+  <rect x="640" y="430" width="145" height="80" rx="10" fill="#fff" stroke="#7dd3fc"/>
+  <text class="text" x="712.5" y="458" text-anchor="middle">填充 RPC 响应</text>
+  <text class="small" x="712.5" y="481" text-anchor="middle">交回通信池写出</text>
+
+  <rect class="lane purple" x="850" y="105" width="235" height="410" rx="15"/>
+  <text class="head" x="967.5" y="137" text-anchor="middle">Compute × C（按需）</text>
+  <text class="small" x="967.5" y="158" text-anchor="middle">命名队列 webdisk-rpc</text>
+  <rect x="875" y="180" width="185" height="90" rx="10" fill="#fff" stroke="#c4b5fd"/>
+  <text class="text" x="967.5" y="208" text-anchor="middle">上传第 1 段</text>
+  <text class="text" x="967.5" y="231" text-anchor="middle">SHA-256 + 同步写盘</text>
+  <text class="small" x="967.5" y="253" text-anchor="middle">然后追加 INSERT</text>
+  <rect x="875" y="300" width="185" height="90" rx="10" fill="#fff" stroke="#c4b5fd"/>
+  <text class="text" x="967.5" y="328" text-anchor="middle">上传第 2 段</text>
+  <text class="text" x="967.5" y="351" text-anchor="middle">BasicPublish + confirm</text>
+  <text class="small" x="967.5" y="373" text-anchor="middle">没有 RabbitMQ 专用线程</text>
+  <rect x="875" y="420" width="185" height="65" rx="10" fill="#fff" stroke="#c4b5fd"/>
+  <text class="text" x="967.5" y="448" text-anchor="middle">下载：同步读盘</text>
+  <text class="small" x="967.5" y="470" text-anchor="middle">完成后填充响应</text>
+
+  <rect class="lane green" x="850" y="545" width="235" height="100" rx="15"/>
+  <text class="head" x="967.5" y="577" text-anchor="middle">DNS × 4（按需）</text>
+  <text class="text" x="967.5" y="604" text-anchor="middle">解析 Consul / MySQL 主机名</text>
+  <text class="small" x="967.5" y="627" text-anchor="middle">独立于 Compute 池</text>
+
+  <rect class="lane gray" x="1125" y="105" width="125" height="540" rx="15"/>
+  <text class="head" x="1187.5" y="137" text-anchor="middle">日志 × 1</text>
+  <text class="text" x="1187.5" y="178" text-anchor="middle">每 3 秒 flush</text>
+  <text class="small" x="1187.5" y="220" text-anchor="middle">logger 本身同步</text>
+  <text class="small" x="1187.5" y="242" text-anchor="middle">调用线程写 sink</text>
+  <text class="small" x="1187.5" y="610" text-anchor="middle">基线 26</text>
+  <text class="small" x="1187.5" y="630" text-anchor="middle">+C / +4</text>
+
+  <path class="network" d="M155 168 H425"/>
+  <path class="network" d="M550 210 H640"/>
+  <path class="dispatch" d="M785 220 H875"/><text class="label" x="830" y="208" text-anchor="middle">上传</text>
+  <path class="blocking" d="M875 230 C680 230 410 360 155 398"/><text class="label" x="330" y="349">上传同步写盘</text>
+  <path class="dispatch" d="M875 255 C830 255 830 325 785 325"/><text class="label" x="830" y="286" text-anchor="middle">追加 SQL</text>
+  <path class="network" d="M640 338 H550"/>
+  <path class="network" d="M425 330 C330 330 260 283 155 283"/>
+  <path class="network" d="M155 285 H425"/>
+  <path class="network" d="M425 350 C540 560 650 520 670 385"/><text class="label" x="565" y="538" text-anchor="middle">元数据完成</text>
+  <path class="dispatch" d="M785 350 H875"/>
+  <path class="blocking" d="M875 350 C820 555 390 575 155 513"/><text class="label" x="515" y="566" text-anchor="middle">同步发布并等待 confirm</text>
+  <path class="dispatch" d="M875 452 H785"/><text class="label" x="830" y="440" text-anchor="middle">下载完成</text>
+  <path class="blocking" d="M875 470 C520 470 520 398 155 398"/>
+  <path class="network" d="M640 470 C590 470 590 225 550 225"/>
+  <path class="control" d="M337 330 H425"/>
+  <path class="control" d="M425 450 C340 520 260 619 155 619"/>
+  <path class="dns" d="M850 595 C805 595 805 365 785 350"/>
+
+  <rect x="35" y="675" width="1210" height="42" rx="10" fill="#fff" stroke="#cbd5e1"/>
+  <text class="small" x="60" y="701">同一上传会两次进入 Compute：先哈希/写盘，MySQL 成功后再发布 RabbitMQ。命名队列不是单线程，多个请求可由 C 个 Compute 工作线程并发推进。</text>
+</svg>
