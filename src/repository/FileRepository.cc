@@ -53,7 +53,7 @@ WFMySQLTask* FileRepository::list_by_user(uint64_t user_id, ListCallback callbac
 
     return database_.create_task(sql, [callback = std::move(callback)](WFMySQLTask* task) {
         if (auto error = database_error(task, "list files")) {
-            callback(common::Result<std::vector<model::FileInfo>>::failure(error->status_code, error->message));
+            callback(common::Result<std::vector<model::FileInfo>>::failure(*error));
             return;
         }
 
@@ -84,7 +84,7 @@ WFMySQLTask* FileRepository::find_owned(uint64_t user_id, uint64_t file_id, Find
                             std::to_string(file_id) + " AND uid=" + std::to_string(user_id) + " LIMIT 1";
     return database_.create_task(sql, [callback = std::move(callback)](WFMySQLTask* task) {
         if (auto error = database_error(task, "find owned file")) {
-            callback(common::Result<std::optional<model::FileInfo>>::failure(error->status_code, error->message));
+            callback(common::Result<std::optional<model::FileInfo>>::failure(*error));
             return;
         }
 

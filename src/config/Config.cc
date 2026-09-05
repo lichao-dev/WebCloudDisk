@@ -74,11 +74,6 @@ std::filesystem::path resolve_path(const std::filesystem::path& working_dir, con
     return path.lexically_normal();
 }
 
-template <typename T, typename U>
-common::Result<T> forward_error(const common::Result<U>& result) {
-    return common::Result<T>::failure(result.error().status_code, result.error().message);
-}
-
 template <typename T, typename Loader>
 common::Result<T> load_config_file(const std::filesystem::path& path, Loader loader) {
     std::error_code error;
@@ -107,7 +102,7 @@ common::Result<T> load_config_file(const std::filesystem::path& path, Loader loa
 common::Result<Server> load_server(const INIReader& reader, const std::filesystem::path& working_dir) {
     auto port = parse_unsigned(reader.Get("server", "port", "9527"), "server.port", 1, 65535);
     if (!port) {
-        return forward_error<Server>(port);
+        return common::Result<Server>::failure(port.error());
     }
 
     Server config;
@@ -120,10 +115,10 @@ common::Result<Database> load_database(const INIReader& reader) {
     auto port = parse_unsigned(reader.Get("database", "port", "3306"), "database.port", 1, 65535);
     auto retry_max = parse_unsigned(reader.Get("database", "retry_max", "3"), "database.retry_max", 0, 10);
     if (!port) {
-        return forward_error<Database>(port);
+        return common::Result<Database>::failure(port.error());
     }
     if (!retry_max) {
-        return forward_error<Database>(retry_max);
+        return common::Result<Database>::failure(retry_max.error());
     }
 
     Database config;
@@ -155,7 +150,7 @@ common::Result<Auth> load_auth(const INIReader& reader, bool load_token_ttl, boo
         auto token_ttl =
             parse_unsigned(reader.Get("auth", "token_ttl_seconds", "3600"), "auth.token_ttl_seconds", 60, 604800);
         if (!token_ttl) {
-            return forward_error<Auth>(token_ttl);
+            return common::Result<Auth>::failure(token_ttl.error());
         }
         config.token_ttl = std::chrono::seconds(token_ttl.value());
     }
@@ -163,7 +158,7 @@ common::Result<Auth> load_auth(const INIReader& reader, bool load_token_ttl, boo
         auto iterations = parse_unsigned(reader.Get("auth", "password_iterations", "600000"),
                                          "auth.password_iterations", 600000, std::numeric_limits<int>::max());
         if (!iterations) {
-            return forward_error<Auth>(iterations);
+            return common::Result<Auth>::failure(iterations.error());
         }
         config.password_iterations = static_cast<int>(iterations.value());
     }
@@ -180,7 +175,7 @@ common::Result<Storage> load_storage(const INIReader& reader, const std::filesys
         auto max_file_size = parse_unsigned(reader.Get("storage", "max_file_size_bytes", "104857600"),
                                             "storage.max_file_size_bytes", 1, std::numeric_limits<uint64_t>::max());
         if (!max_file_size) {
-            return forward_error<Storage>(max_file_size);
+            return common::Result<Storage>::failure(max_file_size.error());
         }
         config.max_file_size = max_file_size.value();
     }
@@ -207,7 +202,7 @@ common::Result<Oss> load_oss(const INIReader& reader) {
 common::Result<RabbitMq> load_rabbitmq(const INIReader& reader, bool required) {
     auto port = parse_unsigned(reader.Get("rabbitmq", "port", "5672"), "rabbitmq.port", 1, 65535);
     if (!port) {
-        return forward_error<RabbitMq>(port);
+        return common::Result<RabbitMq>::failure(port.error());
     }
 
     RabbitMq config;
@@ -229,7 +224,7 @@ common::Result<Rpc> load_gateway_rpc(const INIReader& reader) {
     auto timeout =
         parse_unsigned(reader.Get("rpc", "request_timeout_ms", "120000"), "rpc.request_timeout_ms", 1000, 600000);
     if (!timeout) {
-        return forward_error<Rpc>(timeout);
+        return common::Result<Rpc>::failure(timeout.error());
     }
 
     Rpc config;
@@ -242,7 +237,7 @@ common::Result<Rpc> load_service_rpc(const INIReader& reader, bool user_service)
     const std::string full_port_key = "rpc." + port_key;
     auto port = parse_unsigned(reader.Get("rpc", port_key, user_service ? "9601" : "9602"), full_port_key, 1, 65535);
     if (!port) {
-        return forward_error<Rpc>(port);
+        return common::Result<Rpc>::failure(port.error());
     }
 
     Rpc config;
@@ -265,7 +260,7 @@ common::Result<Rpc> load_service_rpc(const INIReader& reader, bool user_service)
 common::Result<Consul> load_consul(const INIReader& reader, ConsulScope scope) {
     auto retry_max = parse_unsigned(reader.Get("consul", "retry_max", "3"), "consul.retry_max", 0, 10);
     if (!retry_max) {
-        return forward_error<Consul>(retry_max);
+        return common::Result<Consul>::failure(retry_max.error());
     }
 
     Consul config;
@@ -305,13 +300,13 @@ common::Result<Consul> load_consul(const INIReader& reader, ConsulScope scope) {
         auto deregister = parse_unsigned(reader.Get("consul", "deregister_critical_after_ms", "600000"),
                                          "consul.deregister_critical_after_ms", 60000, 86400000);
         if (!interval) {
-            return forward_error<Consul>(interval);
+            return common::Result<Consul>::failure(interval.error());
         }
         if (!timeout) {
-            return forward_error<Consul>(timeout);
+            return common::Result<Consul>::failure(timeout.error());
         }
         if (!deregister) {
-            return forward_error<Consul>(deregister);
+            return common::Result<Consul>::failure(deregister.error());
         }
 
         config.health_check_host = reader.Get("consul", "health_check_host", "host.docker.internal");
@@ -337,13 +332,13 @@ common::Result<Log> load_log(const INIReader& reader, const std::filesystem::pat
                                     static_cast<uint64_t>(std::numeric_limits<size_t>::max()));
     auto roll_files = parse_unsigned(reader.Get("log", "roll_files", "5"), "log.roll_files", 1, 1000);
     if (!console) {
-        return forward_error<Log>(console);
+        return common::Result<Log>::failure(console.error());
     }
     if (!roll_size) {
-        return forward_error<Log>(roll_size);
+        return common::Result<Log>::failure(roll_size.error());
     }
     if (!roll_files) {
-        return forward_error<Log>(roll_files);
+        return common::Result<Log>::failure(roll_files.error());
     }
 
     Log config;
@@ -431,17 +426,17 @@ common::Result<GatewayConfig> GatewayConfig::load(const std::filesystem::path& p
         auto consul = load_consul(reader, ConsulScope::GATEWAY);
         auto log = load_log(reader, working_dir, "./log/cloud_disk_api_gateway.log");
         if (!server)
-            return forward_error<GatewayConfig>(server);
+            return common::Result<GatewayConfig>::failure(server.error());
         if (!auth)
-            return forward_error<GatewayConfig>(auth);
+            return common::Result<GatewayConfig>::failure(auth.error());
         if (!storage)
-            return forward_error<GatewayConfig>(storage);
+            return common::Result<GatewayConfig>::failure(storage.error());
         if (!rpc)
-            return forward_error<GatewayConfig>(rpc);
+            return common::Result<GatewayConfig>::failure(rpc.error());
         if (!consul)
-            return forward_error<GatewayConfig>(consul);
+            return common::Result<GatewayConfig>::failure(consul.error());
         if (!log)
-            return forward_error<GatewayConfig>(log);
+            return common::Result<GatewayConfig>::failure(log.error());
 
         GatewayConfig config;
         config.server = server.take_value();
@@ -463,15 +458,15 @@ common::Result<UserServiceConfig> UserServiceConfig::load(const std::filesystem:
             auto consul = load_consul(reader, ConsulScope::USER_SERVICE);
             auto log = load_log(reader, working_dir, "./log/cloud_disk_user_service.log");
             if (!database)
-                return forward_error<UserServiceConfig>(database);
+                return common::Result<UserServiceConfig>::failure(database.error());
             if (!auth)
-                return forward_error<UserServiceConfig>(auth);
+                return common::Result<UserServiceConfig>::failure(auth.error());
             if (!rpc)
-                return forward_error<UserServiceConfig>(rpc);
+                return common::Result<UserServiceConfig>::failure(rpc.error());
             if (!consul)
-                return forward_error<UserServiceConfig>(consul);
+                return common::Result<UserServiceConfig>::failure(consul.error());
             if (!log)
-                return forward_error<UserServiceConfig>(log);
+                return common::Result<UserServiceConfig>::failure(log.error());
 
             UserServiceConfig config;
             config.database = database.take_value();
@@ -490,20 +485,20 @@ common::Result<FileServiceConfig> FileServiceConfig::load(const std::filesystem:
             auto storage = load_storage(reader, working_dir, true, true);
             auto backup_enabled = parse_boolean(reader.Get("backup", "enabled", "true"), "backup.enabled");
             if (!database)
-                return forward_error<FileServiceConfig>(database);
+                return common::Result<FileServiceConfig>::failure(database.error());
             if (!storage)
-                return forward_error<FileServiceConfig>(storage);
+                return common::Result<FileServiceConfig>::failure(storage.error());
             if (!backup_enabled)
-                return forward_error<FileServiceConfig>(backup_enabled);
+                return common::Result<FileServiceConfig>::failure(backup_enabled.error());
             auto rpc = load_service_rpc(reader, false);
             auto consul = load_consul(reader, ConsulScope::FILE_SERVICE);
             auto log = load_log(reader, working_dir, "./log/cloud_disk_file_service.log");
             if (!rpc)
-                return forward_error<FileServiceConfig>(rpc);
+                return common::Result<FileServiceConfig>::failure(rpc.error());
             if (!consul)
-                return forward_error<FileServiceConfig>(consul);
+                return common::Result<FileServiceConfig>::failure(consul.error());
             if (!log)
-                return forward_error<FileServiceConfig>(log);
+                return common::Result<FileServiceConfig>::failure(log.error());
 
             FileServiceConfig config;
             config.database = database.take_value();
@@ -513,7 +508,7 @@ common::Result<FileServiceConfig> FileServiceConfig::load(const std::filesystem:
             if (config.backup_enabled) {
                 auto rabbitmq = load_rabbitmq(reader, true);
                 if (!rabbitmq)
-                    return forward_error<FileServiceConfig>(rabbitmq);
+                    return common::Result<FileServiceConfig>::failure(rabbitmq.error());
                 config.rabbitmq = rabbitmq.take_value();
             }
             config.rpc = rpc.take_value();
@@ -529,15 +524,15 @@ common::Result<BackupWorkerConfig> BackupWorkerConfig::load(const std::filesyste
         auto storage = load_storage(reader, working_dir, true, false);
         auto oss = load_oss(reader);
         if (!storage)
-            return forward_error<BackupWorkerConfig>(storage);
+            return common::Result<BackupWorkerConfig>::failure(storage.error());
         if (!oss)
-            return forward_error<BackupWorkerConfig>(oss);
+            return common::Result<BackupWorkerConfig>::failure(oss.error());
         auto rabbitmq = load_rabbitmq(reader, true);
         auto log = load_log(reader, working_dir, "./log/cloud_disk_backup_worker.log");
         if (!rabbitmq)
-            return forward_error<BackupWorkerConfig>(rabbitmq);
+            return common::Result<BackupWorkerConfig>::failure(rabbitmq.error());
         if (!log)
-            return forward_error<BackupWorkerConfig>(log);
+            return common::Result<BackupWorkerConfig>::failure(log.error());
 
         BackupWorkerConfig config;
         config.storage = storage.take_value();

@@ -30,15 +30,14 @@ void AuthService::register_user(const std::string& username, const std::string& 
 
     auto password_hash = password_hasher_.hash(password);
     if (!password_hash) {
-        callback(
-            common::Result<RegisteredUser>::failure(password_hash.error().status_code, password_hash.error().message));
+        callback(common::Result<RegisteredUser>::failure(password_hash.error()));
         return;
     }
 
     WFMySQLTask* task = users_.create(
         username, password_hash.value(), [username, callback = std::move(callback)](common::Result<uint64_t> result) {
             if (!result) {
-                callback(common::Result<RegisteredUser>::failure(result.error().status_code, result.error().message));
+                callback(common::Result<RegisteredUser>::failure(result.error()));
                 return;
             }
             LOG_INFO("User registered: user_id={}", result.value());
@@ -64,7 +63,7 @@ void AuthService::login(const std::string& username, const std::string& password
         users_.find_by_username(username, [this, password, scheduler, callback = std::move(callback)](
                                               common::Result<std::optional<model::User>> result) mutable {
             if (!result) {
-                callback(common::Result<LoginResult>::failure(result.error().status_code, result.error().message));
+                callback(common::Result<LoginResult>::failure(result.error()));
                 return;
             }
             if (!result.value().has_value()) {
@@ -90,7 +89,7 @@ void AuthService::finish_login(const model::User& user, const std::string& passw
     auto verified = password_hasher_.verify(password, user.password_hash);
     // 验证流程本身失败，例如存储的哈希格式损坏或 PBKDF2 计算出错。
     if (!verified.ok()) {
-        callback(common::Result<LoginResult>::failure(verified.error().status_code, verified.error().message));
+        callback(common::Result<LoginResult>::failure(verified.error()));
         return;
     }
     // 验证正常完成但摘要不匹配，说明用户输入的密码错误。
@@ -102,7 +101,7 @@ void AuthService::finish_login(const model::User& user, const std::string& passw
 
     auto token = jwt_service_.generate(user.id);
     if (!token) {
-        callback(common::Result<LoginResult>::failure(token.error().status_code, token.error().message));
+        callback(common::Result<LoginResult>::failure(token.error()));
         return;
     }
 
@@ -116,8 +115,7 @@ void AuthService::finish_login(const model::User& user, const std::string& passw
     // 登录成功后顺便升级旧的迭代参数，调整密码策略时无需强制用户重置密码。
     auto upgraded_hash = password_hasher_.hash(password);
     if (!upgraded_hash) {
-        callback(
-            common::Result<LoginResult>::failure(upgraded_hash.error().status_code, upgraded_hash.error().message));
+        callback(common::Result<LoginResult>::failure(upgraded_hash.error()));
         return;
     }
 
@@ -126,7 +124,7 @@ void AuthService::finish_login(const model::User& user, const std::string& passw
         [user_id = user.id, login_result = std::move(login_result),
          callback = std::move(callback)](common::Result<void> result) mutable {
             if (!result) {
-                callback(common::Result<LoginResult>::failure(result.error().status_code, result.error().message));
+                callback(common::Result<LoginResult>::failure(result.error()));
                 return;
             }
             LOG_INFO("User logged in and password hash upgraded: user_id={}", user_id);

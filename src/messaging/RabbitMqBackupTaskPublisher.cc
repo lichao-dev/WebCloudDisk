@@ -56,7 +56,7 @@ RabbitMqBackupTaskPublisher::create(const config::RabbitMq& config) {
 common::Result<void> RabbitMqBackupTaskPublisher::publish(const BackupTask& task) {
     auto body = serialize_backup_task(task);
     if (!body) {
-        return common::Result<void>::failure(body.error().status_code, body.error().message);
+        return common::Result<void>::failure(body.error());
     }
 
     try {

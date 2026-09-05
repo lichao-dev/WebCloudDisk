@@ -64,13 +64,13 @@ void FileService::upload(uint64_t user_id, const std::string& untrusted_filename
     auto filename = sanitize_filename(untrusted_filename);
     if (!filename) {
         LOG_DEBUG("Upload rejected because of invalid filename: user_id={}", user_id);
-        callback(common::Result<UploadedFile>::failure(filename.error().status_code, filename.error().message));
+        callback(common::Result<UploadedFile>::failure(filename.error()));
         return;
     }
 
     auto hashcode = security::Sha256::hex(content);
     if (!hashcode) {
-        callback(common::Result<UploadedFile>::failure(hashcode.error().status_code, hashcode.error().message));
+        callback(common::Result<UploadedFile>::failure(hashcode.error()));
         return;
     }
 
@@ -78,7 +78,7 @@ void FileService::upload(uint64_t user_id, const std::string& untrusted_filename
     // 但不会产生指向缺失文件的记录；无引用文件后续可以安全清理。
     auto stored = storage_.store_if_absent(hashcode.value(), content);
     if (!stored.ok()) {
-        callback(common::Result<UploadedFile>::failure(stored.error().status_code, stored.error().message));
+        callback(common::Result<UploadedFile>::failure(stored.error()));
         return;
     }
 
@@ -91,7 +91,7 @@ void FileService::upload(uint64_t user_id, const std::string& untrusted_filename
         [this, user_id, safe_filename, content_hashcode, file_size, content_created, scheduler,
          callback = std::move(callback)](common::Result<uint64_t> result) mutable {
             if (!result) {
-                callback(common::Result<UploadedFile>::failure(result.error().status_code, result.error().message));
+                callback(common::Result<UploadedFile>::failure(result.error()));
                 return;
             }
             const uint64_t file_id = result.value();
@@ -117,7 +117,7 @@ void FileService::find_download(uint64_t user_id, uint64_t file_id, const common
         [this, user_id, file_id,
          callback = std::move(callback)](common::Result<std::optional<model::FileInfo>> result) {
             if (!result) {
-                callback(common::Result<DownloadFile>::failure(result.error().status_code, result.error().message));
+                callback(common::Result<DownloadFile>::failure(result.error()));
                 return;
             }
             if (!result.value().has_value()) {

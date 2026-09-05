@@ -95,7 +95,7 @@ common::Result<void> BackupWorker::run(const std::function<bool()>& should_stop)
                 // 第一阶段尚未实现延迟重试和自动重连。保持消息未确认并退出，连接关闭后 Broker 会重新入队。
                 LOG_ERROR("OSS backup task failed; leaving message unacknowledged: hashcode={}, error={}",
                           task.value().hashcode, backed_up.error().message);
-                return common::Result<void>::failure(backed_up.error().status_code, backed_up.error().message);
+                return common::Result<void>::failure(backed_up.error());
             }
 
             // 只有 OSS 上传成功后才确认消息，保证已确认任务对应的备份已经完成。

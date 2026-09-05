@@ -117,7 +117,7 @@ GatewayApplication::GatewayApplication(config::GatewayConfig config)
 common::Result<void> GatewayApplication::init() {
     auto discovery = discovery::ConsulServiceDiscovery::create(config_.consul);
     if (!discovery) {
-        return common::Result<void>::failure(discovery.error().status_code, discovery.error().message);
+        return common::Result<void>::failure(discovery.error());
     }
     service_discovery_ = discovery.take_value();
     register_routes();

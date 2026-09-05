@@ -105,7 +105,7 @@ common::Result<std::string> PasswordHasher::hash(const std::string& password) co
 
     auto derived = derive(password, salt.data(), salt.size(), iterations_);
     if (!derived) {
-        return common::Result<std::string>::failure(derived.error().status_code, derived.error().message);
+        return common::Result<std::string>::failure(derived.error());
     }
 
     // 将密码哈希参数编码为字符串格式：
@@ -152,7 +152,7 @@ common::Result<bool> PasswordHasher::verify(const std::string& password, const s
 
     auto actual = derive(password, salt.value().data(), salt.value().size(), stored_iterations);
     if (!actual) {
-        return common::Result<bool>::failure(actual.error().status_code, actual.error().message);
+        return common::Result<bool>::failure(actual.error());
     }
 
     // 普通字符串比较可能在首个不同字节处提前返回并泄露时序信息；

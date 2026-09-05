@@ -34,7 +34,7 @@ std::optional<common::AppError> database_error(WFMySQLTask* task, const std::str
 // 解析单用户查询结果，区分数据库失败、结果为空和成功返回用户三种情况。
 common::Result<std::optional<model::User>> read_one_user(WFMySQLTask* task, const std::string& operation) {
     if (auto error = database_error(task, operation)) {
-        return common::Result<std::optional<model::User>>::failure(error->status_code, error->message);
+        return common::Result<std::optional<model::User>>::failure(*error);
     }
 
     // protocol::MySQLResultCursor 是 Workflow 提供的一个类，用来解析和遍历 MySQL 返回的结果集
@@ -117,7 +117,7 @@ WFMySQLTask* UserRepository::update_password_hash(uint64_t user_id, const std::s
                             "' WHERE id=" + std::to_string(user_id);
     return database_.create_task(sql, [callback = std::move(callback)](WFMySQLTask* task) {
         if (auto error = database_error(task, "update password hash")) {
-            callback(common::Result<void>::failure(error->status_code, error->message));
+            callback(common::Result<void>::failure(*error));
             return;
         }
         callback(common::Result<void>::success());

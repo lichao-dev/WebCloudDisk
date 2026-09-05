@@ -12,7 +12,7 @@ void UserService::get_current_user(uint64_t user_id, const common::TaskScheduler
     WFMySQLTask* task =
         users_.find_by_id(user_id, [callback = std::move(callback)](common::Result<std::optional<model::User>> result) {
             if (!result) {
-                callback(common::Result<model::User>::failure(result.error().status_code, result.error().message));
+                callback(common::Result<model::User>::failure(result.error()));
                 return;
             }
             if (!result.value().has_value()) {

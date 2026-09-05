@@ -84,7 +84,7 @@ common::Result<std::filesystem::path> FileStorage::temporary_path(const std::str
 common::Result<bool> FileStorage::store_if_absent(const std::string& hashcode, std::string_view content) {
     auto final_path = path_for(hashcode);
     if (!final_path) {
-        return common::Result<bool>::failure(final_path.error().status_code, final_path.error().message);
+        return common::Result<bool>::failure(final_path.error());
     }
 
     std::error_code exists_error;
@@ -95,7 +95,7 @@ common::Result<bool> FileStorage::store_if_absent(const std::string& hashcode, s
 
     auto temp_path = temporary_path(hashcode);
     if (!temp_path) {
-        return common::Result<bool>::failure(temp_path.error().status_code, temp_path.error().message);
+        return common::Result<bool>::failure(temp_path.error());
     }
 
     // 不能让下载请求看到只写了一部分的目标文件。先写入 .tmp，

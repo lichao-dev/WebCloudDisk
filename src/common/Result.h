@@ -31,6 +31,9 @@ public:
         return Result(AppError{status_code, std::move(message)});
     }
 
+    // 原样传播已有错误，只改变 Result 的成功值类型。
+    static Result failure(AppError error) { return Result(std::move(error)); }
+
     // 判断 variant 当前是否保存的是 T 类型。
     // std::variant<T, AppError> 同一时间只会保存其中一种类型：
     // - 保存 T 表示成功
@@ -68,6 +71,8 @@ public:
     static Result failure(int status_code, std::string message) {
         return Result(AppError{status_code, std::move(message)});
     }
+    // 与 Result<T> 保持一致，允许直接传播已有错误。
+    static Result failure(AppError error) { return Result(std::move(error)); }
 
     bool ok() const { return !error_.has_value(); }
 
